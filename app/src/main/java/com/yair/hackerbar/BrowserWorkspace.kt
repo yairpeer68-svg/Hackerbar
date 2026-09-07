@@ -48,13 +48,29 @@ import org.json.JSONObject
             OutlinedTextField(address, { address = it }, Modifier.weight(1f), singleLine = true, label = { Text("URL") })
             Button(onClick = { navigate(address) }, modifier = Modifier.padding(top = 8.dp)) { Text("Go") }
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-            TextButton(onClick = { web.goBack() }, enabled = web.canGoBack() == true) { Text("◀") }
-            TextButton(onClick = { web.goForward() }, enabled = web.canGoForward() == true) { Text("▶") }
-            TextButton(onClick = { web.reload() }) { Text("↻") }
-            TextButton(onClick = { web.stopLoading() }) { Text("Stop") }
-            TextButton(onClick = { toRepeater(current) }) { Text("HackBar") }
-            TextButton(onClick = { panel = if (panel == "Menu") "" else "Menu" }) { Text("Menu") }
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            OutlinedButton(onClick = { web.goBack() }, enabled = web.canGoBack() == true, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)) { Text("<") }
+            OutlinedButton(onClick = { web.goForward() }, enabled = web.canGoForward() == true, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)) { Text(">") }
+            OutlinedButton(onClick = { address = "" }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("Clear") }
+            Button(onClick = { navigate(address) }, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)) { Text("Execute") }
+            OutlinedButton(onClick = { web.reload() }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("Reload") }
+            OutlinedButton(onClick = { web.stopLoading() }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("Stop") }
+            OutlinedButton(onClick = { toRepeater(current) }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("Repeater") }
+        }
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            listOf("SQL" to "SQLi", "XSS" to "XSS", "LFI" to "LFI / Traversal", "SSTI" to "SSTI", "SSRF" to "SSRF", "Auth" to "Authorization", "WAF" to "WAF Lab").forEach { (label, target) ->
+                OutlinedButton(onClick = { panel = target }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text(label) }
+            }
+        }
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            OutlinedButton(onClick = { inspect("document.documentElement.outerHTML", "View Source") }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("View Source") }
+            OutlinedButton(onClick = { inspect("JSON.stringify(Array.from(document.querySelectorAll('a[href]')).map(a=>a.href))", "Extract Links") }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("Extract Links") }
+            OutlinedButton(onClick = { panel = "Find in Page" }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("Find") }
+            OutlinedButton(onClick = { panel = "History" }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("History") }
+            OutlinedButton(onClick = { panel = "Headers" }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("Headers") }
+            OutlinedButton(onClick = { panel = "Cookies" }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("Cookies") }
+            OutlinedButton(onClick = { panel = "User Agent" }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("User Agent") }
+            OutlinedButton(onClick = { panel = if (panel == "Menu") "" else "Menu" }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("More") }
         }
         if (loading) LinearProgressIndicator(progress = { progress / 100f }, modifier = Modifier.fillMaxWidth())
         if (panel == "Menu") Column(Modifier.verticalScroll(rememberScrollState())) {
@@ -71,9 +87,21 @@ import org.json.JSONObject
             when (panel) {
                 "Find in Page" -> { var query by remember { mutableStateOf("") }; OutlinedTextField(query, { query = it; web.findAllAsync(it) }, label = { Text("Find") }); Row { TextButton(onClick = { web.findNext(false) }) { Text("Previous") }; TextButton(onClick = { web.findNext(true) }) { Text("Next") } } }
                 "History" -> history.asReversed().take(30).forEach { h -> TextButton(onClick = { navigate(h); panel = "" }) { Text(h) } }
-                "Tamper Data" -> Text("Request editing is available in Repeater. Browser-wide interception is not implemented yet.")
-                "Custom Query", "Admin Finder", "Web Tools" -> Text("This original tool is not implemented yet. No scanner is running.")
-                "About" -> Text("HackerBar Mobile · compatibility prototype. Original DH HackBar is developed by Team Darknet Haxor.")
+                "Tamper Data" -> Text("Open the current URL in Repeater to edit method, headers and body before sending.")
+                "Headers" -> SelectionText("Browser request-header editing is intentionally separated from WebView. Use Repeater for exact request control. Current page: $current")
+                "Cookies" -> SelectionText(CookieManager.getInstance().getCookie(current) ?: "No cookies for current page")
+                "User Agent" -> SelectionText(web.settings.userAgentString ?: defaultAgent)
+                "SQLi" -> SelectionText("Manual SQL checks: quote handling ( ' ), boolean comparison (1 AND 1=1), baseline/error comparison. Use Repeater on an authorized parameter.")
+                "XSS" -> SelectionText("Manual XSS checks: HB_CANARY_2026, quoted canary, reflected-context inspection. Confirm encoding/context before any active proof.")
+                "LFI / Traversal" -> SelectionText("Manual path-normalization checks: ../HB_CANARY_2026 and encoded variants. Do not request sensitive local files.")
+                "SSTI" -> SelectionText("Manual template check: {{7*7}}. Compare the rendered response against a baseline on an authorized target.")
+                "SSRF" -> SelectionText("Use only a callback endpoint you control, e.g. https://example.com/HB_CANARY_2026. Do not probe internal metadata/services.")
+                "Authorization" -> SelectionText("Authorization workspace: compare the same authorized request across your own test roles/sessions. Use Repeater for exact headers/cookies.")
+                "WAF Lab" -> SelectionText("WAF experiments are available in the WAF Lab tab: original, URL encoded, double encoded and normalization variants.")
+                "Custom Query" -> Text("Use Repeater for custom method, headers, body and query-string editing.")
+                "Admin Finder" -> Text("Automatic admin-path scanning is not enabled. Use authorized discovery lists manually and within scope.")
+                "Web Tools" -> SelectionText("Quick tools: View Source · Extract Links · Find · History · Cookies · User Agent · Repeater · WAF Lab")
+                "About" -> Text("DH HackerBar Mobile · modern compatibility prototype inspired by the original DH HackBar UI.")
                 else -> SelectionText(source)
             }
             TextButton(onClick = { panel = ""; web.clearMatches() }) { Text("Close") }

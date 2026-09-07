@@ -102,17 +102,17 @@ class MainActivity : ComponentActivity() {
         }
     }
     Column(Modifier.fillMaxSize().background(Color(0xFF0B0F12))) {
-        Row(Modifier.fillMaxWidth().background(Color(0xFF11181D)).padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Image(painterResource(R.drawable.hackerbar_logo), "HackerBar logo", Modifier.size(42.dp).clip(RoundedCornerShape(21.dp)))
-            Spacer(Modifier.width(10.dp))
+        Row(Modifier.fillMaxWidth().background(Color(0xFF11181D)).padding(horizontal = 8.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+            Image(painterResource(R.drawable.hackerbar_logo), "HackerBar logo", Modifier.size(30.dp).clip(RoundedCornerShape(15.dp)))
+            Spacer(Modifier.width(7.dp))
             Column(Modifier.weight(1f)) {
-                Text("HackerBar Mobile", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
-                Text("2026 · Authorized Web Security Workbench", color = Color(0xFF72D6FF), style = MaterialTheme.typography.labelSmall)
+                Text("DH HackerBar Mobile", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                Text("Authorized Security Workbench", color = Color(0xFF72D6FF), style = MaterialTheme.typography.labelSmall)
             }
             AssistChip(onClick = { tab = 0 }, label = { Text("Scope") })
         }
         ScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp, containerColor = Color(0xFF0F1519)) { tabs.forEachIndexed { i, name -> Tab(selected = tab == i, onClick = { tab = i }, text = { Text(name) }) } }
-        Column(Modifier.fillMaxSize().padding(12.dp).then(if (tab == 0) Modifier else Modifier.verticalScroll(rememberScrollState())), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.fillMaxSize().padding(6.dp).then(if (tab == 0) Modifier else Modifier.verticalScroll(rememberScrollState())), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             when (tab) {
                 0 -> BrowserWorkspace(browserUrl, { browserUrl = it }, { url = it; tab = 1 })
                 1 -> {
