@@ -4,11 +4,20 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -66,7 +75,7 @@ class MainActivity : ComponentActivity() {
 }
 @Composable fun App() {
     var tab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Repeater", "Payloads", "WAF Lab", "Decoder", "Diff")
+    val tabs = listOf("Repeater", "Payloads", "WAF Lab", "Decoder", "Diff", "Findings")
     var scope by remember { mutableStateOf("") }
     var url by remember { mutableStateOf("https://example.com/") }
     var method by remember { mutableStateOf("GET") }
@@ -76,6 +85,7 @@ class MainActivity : ComponentActivity() {
     var baseline by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var lastSend by remember { mutableLongStateOf(0L) }
+    var findings by remember { mutableStateOf(listOf<String>()) }
     val coroutine = rememberCoroutineScope()
     val sendRequest = {
         if (!busy) {
@@ -90,11 +100,18 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-    Column(Modifier.fillMaxSize().padding(12.dp)) {
-        Text("HackerBar Mobile", style = MaterialTheme.typography.headlineSmall)
-        Text("Authorized testing · Local-first prototype", style = MaterialTheme.typography.bodySmall)
-        ScrollableTabRow(selectedTabIndex = tab) { tabs.forEachIndexed { i, name -> Tab(selected = tab == i, onClick = { tab = i }, text = { Text(name) }) } }
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(Modifier.fillMaxSize().background(Color(0xFF0B0F12))) {
+        Row(Modifier.fillMaxWidth().background(Color(0xFF11181D)).padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Image(painterResource(R.drawable.hackerbar_logo), "HackerBar logo", Modifier.size(42.dp).clip(RoundedCornerShape(21.dp)))
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text("HackerBar Mobile", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge)
+                Text("2026 · Authorized Web Security Workbench", color = Color(0xFF72D6FF), style = MaterialTheme.typography.labelSmall)
+            }
+            AssistChip(onClick = { tab = 0 }, label = { Text("Scope") })
+        }
+        ScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp, containerColor = Color(0xFF0F1519)) { tabs.forEachIndexed { i, name -> Tab(selected = tab == i, onClick = { tab = i }, text = { Text(name) }) } }
+        Column(Modifier.fillMaxSize().padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             when (tab) {
                 0 -> {
                     Text("Scope Guard", style = MaterialTheme.typography.titleMedium)
@@ -104,15 +121,27 @@ class MainActivity : ComponentActivity() {
                     Row { listOf("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD").forEach { m -> TextButton(onClick = { method = m }) { Text(if (method == m) "[$m]" else m) } } }
                     OutlinedTextField(headers, { headers = it }, label = { Text("Headers: one per line") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
                     OutlinedTextField(body, { body = it }, label = { Text("Request body") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
-                    Button(onClick = sendRequest, enabled = !busy && runCatching { Engine.allowed(url, scope) }.getOrDefault(false)) { Text(if (busy) "Sending…" else "Send request") }
-                    OutlinedButton(onClick = { baseline = result }) { Text("Save response as baseline") }
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = sendRequest, enabled = !busy && runCatching { Engine.allowed(url, scope) }.getOrDefault(false)) { Text(if (busy) "Sending…" else "Execute") }
+                        OutlinedButton(onClick = { baseline = result }, enabled = result.isNotBlank()) { Text("Baseline") }
+                        OutlinedButton(onClick = { if (result.isNotBlank()) findings = findings + "${method} ${url}\n${result.take(4000)}" }, enabled = result.isNotBlank()) { Text("Save finding") }
+                        TextButton(onClick = { headers = ""; body = ""; result = "" }) { Text("Clear") }
+                    }
                     Text("Response", style = MaterialTheme.typography.titleMedium)
                     SelectionText(result)
                 }
                 1 -> {
-                    Text("Payload library", style = MaterialTheme.typography.titleLarge)
-                    Text("Curated starter checks. Review and adapt each payload before use.")
-                    payloads.forEach { p -> Card { Column(Modifier.padding(12.dp)) { Text("${p.category} · ${p.name}", style = MaterialTheme.typography.titleMedium); SelectionText(p.value); Text(p.note); TextButton(onClick = { body = p.value; tab = 0 }) { Text("Use in Repeater body") } } } }
+                    Text("Payload Intelligence", style = MaterialTheme.typography.titleLarge)
+                    Text("Curated manual checks with context and expected interpretation.")
+                    var q by remember { mutableStateOf("") }
+                    OutlinedTextField(q, { q = it }, label = { Text("Search category, name or note") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    payloads.filter { q.isBlank() || (it.category + it.name + it.note).contains(q, true) }.forEach { p ->
+                        Card { Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                            Text("${p.category} · ${p.name}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            SelectionText(p.value); Text(p.note, style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = { body = p.value; tab = 0 }) { Text("Send to Repeater") }
+                        } }
+                    }
                 }
                 2 -> {
                     Text("WAF Lab", style = MaterialTheme.typography.titleLarge)
@@ -124,12 +153,19 @@ class MainActivity : ComponentActivity() {
                     Text("Compare a baseline with each manual request. A different status alone does not prove a bypass.")
                 }
                 3 -> Decoder()
-                else -> {
+                4 -> {
                     Text("Response Diff", style = MaterialTheme.typography.titleLarge)
                     Text("Save a baseline in Repeater, then send another request.")
-                    Text("Baseline: ${baseline.length} characters · Current: ${result.length} characters")
-                    Text(if (baseline == result) "Responses are identical" else "Responses differ")
+                    val delta = result.length - baseline.length
+                    Text("Baseline ${baseline.length} chars · Current ${result.length} chars · Δ ${if (delta >= 0) "+" else ""}$delta")
+                    Text(if (baseline == result) "IDENTICAL" else "CHANGED", color = if (baseline == result) Color(0xFF72E6A6) else Color(0xFFFFC857), fontWeight = FontWeight.Bold)
                     SelectionText("BASELINE\n$baseline\n\nCURRENT\n$result")
+                }
+                else -> {
+                    Text("Evidence Vault", style = MaterialTheme.typography.titleLarge)
+                    Text("Local findings captured from Repeater. Nothing is uploaded automatically.")
+                    if (findings.isEmpty()) Text("No findings saved yet.")
+                    findings.forEachIndexed { i, item -> Card { Column(Modifier.padding(12.dp)) { Text("Finding #${i + 1}", fontWeight = FontWeight.Bold); SelectionText(item); TextButton(onClick = { findings = findings.filterIndexed { j, _ -> j != i } }) { Text("Remove") } } } }
                 }
             }
         }
