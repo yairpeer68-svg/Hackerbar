@@ -33,7 +33,7 @@ import org.json.JSONObject
     fun navigate(raw: String) {
         val target = if (raw.contains("://")) raw else "https://$raw"
         val uri = runCatching { Uri.parse(target) }.getOrNull()
-        if (uri?.scheme !in listOf("https", "http") || uri.host.isNullOrBlank()) { panel = "Invalid HTTP(S) URL"; return }
+        if (uri?.scheme !in listOf("https", "http") || uri?.host.isNullOrBlank()) { panel = "Invalid HTTP(S) URL"; return }
         address = target; web.loadUrl(target)
     }
     fun inspect(script: String, name: String) {
