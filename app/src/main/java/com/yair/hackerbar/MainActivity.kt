@@ -75,7 +75,8 @@ class MainActivity : ComponentActivity() {
 }
 @Composable fun App() {
     var tab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Repeater", "Payloads", "WAF Lab", "Decoder", "Diff", "Findings")
+    var browserUrl by remember { mutableStateOf("https://example.com/") }
+    val tabs = listOf("Browser", "Repeater", "Payloads", "WAF Lab", "Decoder", "Diff", "Findings")
     var scope by remember { mutableStateOf("") }
     var url by remember { mutableStateOf("https://example.com/") }
     var method by remember { mutableStateOf("GET") }
@@ -111,9 +112,10 @@ class MainActivity : ComponentActivity() {
             AssistChip(onClick = { tab = 0 }, label = { Text("Scope") })
         }
         ScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp, containerColor = Color(0xFF0F1519)) { tabs.forEachIndexed { i, name -> Tab(selected = tab == i, onClick = { tab = i }, text = { Text(name) }) } }
-        Column(Modifier.fillMaxSize().padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.fillMaxSize().padding(12.dp).then(if (tab == 0) Modifier else Modifier.verticalScroll(rememberScrollState())), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             when (tab) {
-                0 -> {
+                0 -> BrowserWorkspace(browserUrl, { browserUrl = it }, { url = it; tab = 1 })
+                1 -> {
                     Text("Scope Guard", style = MaterialTheme.typography.titleMedium)
                     OutlinedTextField(scope, { scope = it }, label = { Text("Allowed HTTPS hosts, one per line") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
                     Text("Exact hosts only. No wildcards, redirects, or automatic cross-host requests.")
@@ -130,7 +132,7 @@ class MainActivity : ComponentActivity() {
                     Text("Response", style = MaterialTheme.typography.titleMedium)
                     SelectionText(result)
                 }
-                1 -> {
+                2 -> {
                     Text("Payload Intelligence", style = MaterialTheme.typography.titleLarge)
                     Text("Curated manual checks with context and expected interpretation.")
                     var q by remember { mutableStateOf("") }
@@ -139,21 +141,21 @@ class MainActivity : ComponentActivity() {
                         Card { Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                             Text("${p.category} · ${p.name}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                             SelectionText(p.value); Text(p.note, style = MaterialTheme.typography.bodySmall)
-                            TextButton(onClick = { body = p.value; tab = 0 }) { Text("Send to Repeater") }
+                            TextButton(onClick = { body = p.value; tab = 1 }) { Text("Send to Repeater") }
                         } }
                     }
                 }
-                2 -> {
+                3 -> {
                     Text("WAF Lab", style = MaterialTheme.typography.titleLarge)
                     Text("Manual normalization experiments; no automatic bypass or attack loop.")
                     var input by remember { mutableStateOf("HB_CANARY_2026") }
                     OutlinedTextField(input, { input = it }, label = { Text("Test canary") }, modifier = Modifier.fillMaxWidth())
                     val variants = listOf("Original" to input, "URL encoded" to URLEncoder.encode(input, "UTF-8"), "Double encoded" to URLEncoder.encode(URLEncoder.encode(input, "UTF-8"), "UTF-8"), "Uppercase" to input.uppercase(), "Lowercase" to input.lowercase())
-                    variants.forEach { (name, value) -> Card { Column(Modifier.padding(12.dp)) { Text(name); SelectionText(value); TextButton(onClick = { body = value; tab = 0 }) { Text("Use in Repeater") } } } }
+                    variants.forEach { (name, value) -> Card { Column(Modifier.padding(12.dp)) { Text(name); SelectionText(value); TextButton(onClick = { body = value; tab = 1 }) { Text("Use in Repeater") } } } }
                     Text("Compare a baseline with each manual request. A different status alone does not prove a bypass.")
                 }
-                3 -> Decoder()
-                4 -> {
+                4 -> Decoder()
+                5 -> {
                     Text("Response Diff", style = MaterialTheme.typography.titleLarge)
                     Text("Save a baseline in Repeater, then send another request.")
                     val delta = result.length - baseline.length
