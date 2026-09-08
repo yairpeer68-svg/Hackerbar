@@ -133,6 +133,13 @@ private fun applyPrivacyIdentity(web: WebView) {
             Row { TextButton(onClick = { panel = "Find in Page" }) { Text("Find in Page") }; TextButton(onClick = { panel = "History" }) { Text("History") }; TextButton(onClick = { panel = "Tamper Data" }) { Text("Tamper Data") } }
             Row { TextButton(onClick = { panel = "Custom Query" }) { Text("Custom Query") }; TextButton(onClick = { panel = "Admin Finder" }) { Text("Admin Finder") }; TextButton(onClick = { panel = "Web Tools" }) { Text("Web Tools") } }
             Row { TextButton(onClick = { web.clearCache(true); web.reload(); panel = "" }) { Text("Restart") }; TextButton(onClick = { panel = "About" }) { Text("About") } }
+            Row { TextButton(onClick = {
+                CookieManager.getInstance().removeAllCookies(null)
+                CookieManager.getInstance().flush()
+                WebStorage.getInstance().deleteAllData()
+                web.clearCache(true); web.clearHistory(); history.clear(); capturedMainRequest.set(null)
+                panel = ""; source = ""; web.reload()
+            }) { Text("Clear Site Data") } }
             Row { Checkbox(jsEnabled, { jsEnabled = it; web.settings?.javaScriptEnabled = it }); Text("JavaScript") }
             Row { Checkbox(noRedirect, { noRedirect = it }); Text("No Redirection") }
             Row { Checkbox(desktop, { desktop = it; if (it) applyPrivacyIdentity(web) else web.settings.userAgentString = WebSettings.getDefaultUserAgent(context); web.reload() }); Text("Privacy Desktop Identity") }

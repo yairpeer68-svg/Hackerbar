@@ -35,7 +35,12 @@ class WorkbenchStore(context: Context) {
     }.getOrDefault(emptyList())
 
     fun saveExchange(exchange: HttpExchange) {
-        val safe = exchange.copy(requestHeaders = exchange.requestHeaders.take(16000), requestBody = exchange.requestBody.take(64000), responseHeaders = exchange.responseHeaders.take(32000), responseBody = exchange.responseBody.take(64000))
+        val safe = exchange.copy(
+            requestHeaders = redactSecrets(exchange.requestHeaders.take(16000)),
+            requestBody = redactSensitiveBody(exchange.requestBody.take(64000)),
+            responseHeaders = redactSecrets(exchange.responseHeaders.take(32000)),
+            responseBody = redactSensitiveBody(exchange.responseBody.take(64000))
+        )
         val all = (listOf(safe) + loadExchanges()).distinctBy { it.id }.take(50)
         val arr = JSONArray()
         all.forEach { arr.put(it.toJson()) }
@@ -111,6 +116,14 @@ fun redactSecrets(text: String): String = text.lineSequence().joinToString("\n")
     if (name in setOf("authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key")) {
         "${line.substringBefore(':')}: [REDACTED]"
     } else line
+}
+
+fun redactSensitiveBody(text: String): String {
+    var out = text
+    val jsonKeys = "password|passwd|token|access_token|refresh_token|api_key|apikey|secret|client_secret"
+    out = Regex("(?i)(\"(?:$jsonKeys)\"\s*:\s*\")[^\"]*").replace(out) { it.groupValues[1] + "[REDACTED]" }
+    out = Regex("(?i)((?:^|[&;])(?:password|passwd|token|access_token|refresh_token|api_key|apikey|secret|client_secret)=)[^&;\r\n]*").replace(out) { it.groupValues[1] + "[REDACTED]" }
+    return out
 }
 
 fun WorkbenchStore.loadFindings(): List<String> = runCatching {

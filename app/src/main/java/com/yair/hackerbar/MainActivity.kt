@@ -35,6 +35,9 @@ import java.util.concurrent.atomic.AtomicReference
 
 private const val PRIVACY_UA_FOR_REPEATER = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
 
+private fun upsertHeaderText(text: String, name: String, value: String): String =
+    (text.lineSequence().filter { it.isNotBlank() && !it.substringBefore(':').trim().equals(name, true) }.toList() + "$name: $value").joinToString("\n")
+
 object Engine {
     private const val MAX_RESPONSE_BYTES = 262144L
     private val client = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).callTimeout(20, TimeUnit.SECONDS).build()
@@ -189,7 +192,7 @@ class MainActivity : ComponentActivity() {
                 0 -> BrowserWorkspace(browserUrl, { browserUrl = it }, { req ->
                     url = Engine.normalizeUrl(req.url)
                     Engine.hostOf(req.url).takeIf { it.isNotBlank() }?.let { scope = it }
-                    method = req.method.uppercase().takeIf { it in listOf("GET","POST","PUT","PATCH","DELETE","HEAD") } ?: "GET"
+                    method = req.method.uppercase().takeIf { it in listOf("GET","POST","PUT","PATCH","DELETE","HEAD","OPTIONS") } ?: "GET"
                     headers = req.headers.entries
                         .filterNot { (k, _) -> k.equals("Host", true) || k.equals("Content-Length", true) || k.startsWith("sec-ch-ua", true) || k.equals("X-Requested-With", true) || k.equals("User-Agent", true) }
                         .joinToString("\n") { (k, v) -> "$k: $v" }
@@ -200,7 +203,7 @@ class MainActivity : ComponentActivity() {
                 }, { tool, req ->
                     url = Engine.normalizeUrl(req.url)
                     Engine.hostOf(req.url).takeIf { it.isNotBlank() }?.let { scope = it }
-                    method = req.method.uppercase().takeIf { it in listOf("GET","POST","PUT","PATCH","DELETE","HEAD") } ?: "GET"
+                    method = req.method.uppercase().takeIf { it in listOf("GET","POST","PUT","PATCH","DELETE","HEAD","OPTIONS") } ?: "GET"
                     headers = req.headers.entries
                         .filterNot { (k, _) -> k.equals("Host", true) || k.equals("Content-Length", true) || k.startsWith("sec-ch-ua", true) || k.equals("X-Requested-With", true) || k.equals("User-Agent", true) }
                         .joinToString("\n") { (k, v) -> "$k: $v" }
@@ -228,8 +231,14 @@ class MainActivity : ComponentActivity() {
                     OutlinedTextField(scope, { scope = it }, label = { Text("Allowed hosts, one per line (google.com or https://google.com)") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
                     Text("Exact HTTPS hosts only. URLs pasted here are normalized to host names automatically.")
                     OutlinedTextField(url, { url = it }, label = { Text("URL (https:// optional)") }, modifier = Modifier.fillMaxWidth())
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) { listOf("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD").forEach { m -> TextButton(onClick = { method = m }) { Text(if (method == m) "[$m]" else m) } } }
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) { listOf("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS").forEach { m -> TextButton(onClick = { method = m }) { Text(if (method == m) "[$m]" else m) } } }
                     OutlinedTextField(headers, { headers = it }, label = { Text("Headers: one per line") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        AssistChip(onClick = { headers = upsertHeaderText(headers, "Content-Type", "application/json; charset=utf-8") }, label = { Text("JSON") })
+                        AssistChip(onClick = { headers = upsertHeaderText(headers, "Content-Type", "application/x-www-form-urlencoded") }, label = { Text("Form") })
+                        AssistChip(onClick = { headers = upsertHeaderText(headers, "Content-Type", "application/xml; charset=utf-8") }, label = { Text("XML") })
+                        AssistChip(onClick = { headers = upsertHeaderText(headers, "Content-Type", "text/plain; charset=utf-8") }, label = { Text("Text") })
+                    }
                     OutlinedTextField(body, { body = it }, label = { Text("Request body") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
                     val validation = Engine.validationError(url, scope)
                     if (validation != null) Text(validation, color = Color(0xFFFFC857), style = MaterialTheme.typography.bodySmall)
