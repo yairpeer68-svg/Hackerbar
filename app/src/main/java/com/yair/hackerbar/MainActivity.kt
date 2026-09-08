@@ -16,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
@@ -57,7 +58,7 @@ object Engine {
         return null
     }
     fun allowed(url: String, scope: String): Boolean = validationError(url, scope) == null
-    fun send(url: String, scope: String, method: String, headers: String, body: String): String {
+    fun sendDetailed(url: String, scope: String, method: String, headers: String, body: String, project: String = "Default"): HttpExchange {
         val normalizedUrl = normalizeUrl(url)
         require(allowed(normalizedUrl, scope)) { validationError(normalizedUrl, scope) ?: "Request is not allowed" }
         val builder = Request.Builder().url(normalizedUrl)
@@ -69,11 +70,20 @@ object Engine {
         }
         val payload = if (method == "GET" || method == "HEAD") null else body.toRequestBody("text/plain; charset=utf-8".toMediaType())
         builder.method(method, payload)
+        val started = System.nanoTime()
         client.newCall(builder.build()).execute().use { response ->
-            val text = response.body?.string()?.take(200000) ?: ""
-            return "HTTP ${response.code} ${response.message}\n" + response.headers.toString() + "\n" + text
+            val bytes = response.body?.bytes() ?: ByteArray(0)
+            val text = bytes.toString(Charsets.UTF_8).take(200000)
+            return HttpExchange(
+                project = project, method = method, url = normalizedUrl, requestHeaders = headers, requestBody = body,
+                status = response.code, responseHeaders = response.headers.toString(), responseBody = text,
+                durationMs = (System.nanoTime() - started) / 1_000_000, responseBytes = bytes.size.toLong()
+            )
         }
     }
+    fun render(exchange: HttpExchange): String =
+        "HTTP ${exchange.status}\n${exchange.responseHeaders}\n${exchange.responseBody}"
+
 }
 
 data class CapturedRequest(val url: String, val method: String, val headers: Map<String, String>)
@@ -98,7 +108,7 @@ class MainActivity : ComponentActivity() {
 @Composable fun App() {
     var tab by remember { mutableIntStateOf(0) }
     var browserUrl by remember { mutableStateOf("https://example.com/") }
-    val tabs = listOf("Browser", "Repeater", "Payloads", "WAF Lab", "Decoder", "Diff", "Findings")
+    val tabs = listOf("Browser", "Repeater", "History", "Analyze", "Projects", "Payloads", "WAF Lab", "Decoder", "Diff", "Findings")
     var scope by remember { mutableStateOf("example.com") }
     var url by remember { mutableStateOf("https://example.com/") }
     var method by remember { mutableStateOf("GET") }
@@ -108,7 +118,13 @@ class MainActivity : ComponentActivity() {
     var baseline by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var lastSend by remember { mutableLongStateOf(0L) }
-    var findings by remember { mutableStateOf(listOf<String>()) }
+    val context = LocalContext.current
+    val store = remember { WorkbenchStore(context) }
+    var findings by remember { mutableStateOf(store.loadFindings()) }
+    var exchanges by remember { mutableStateOf(store.loadExchanges()) }
+    var projects by remember { mutableStateOf(store.loadProjects()) }
+    var currentProject by remember { mutableStateOf(projects.firstOrNull() ?: "Default") }
+    var lastExchange by remember { mutableStateOf<HttpExchange?>(exchanges.firstOrNull()) }
     val coroutine = rememberCoroutineScope()
     val sendRequest = {
         if (!busy) {
@@ -118,7 +134,11 @@ class MainActivity : ComponentActivity() {
                     require(System.currentTimeMillis() - lastSend >= 1000) { "Wait at least one second between requests" }
                     lastSend = System.currentTimeMillis()
                     url = Engine.normalizeUrl(url)
-                    withContext(Dispatchers.IO) { Engine.send(url, scope, method, headers, body) }
+                    val exchange = withContext(Dispatchers.IO) { Engine.sendDetailed(url, scope, method, headers, body, currentProject) }
+                    store.saveExchange(exchange)
+                    exchanges = store.loadExchanges()
+                    lastExchange = exchange
+                    Engine.render(exchange)
                 } catch (e: Exception) { "Error: ${e.message}" }
                 busy = false
             }
@@ -169,7 +189,7 @@ class MainActivity : ComponentActivity() {
                         headers = listOf(headers, "Authorization: Bearer TEST_TOKEN").filter { it.isNotBlank() }.joinToString("\n")
                     }
                     result = "Prepared $tool from Browser: ${method} ${url}"
-                    tab = if (tool == "WAF Lab") 3 else 1
+                    tab = if (tool == "WAF Lab") 6 else 1
                 })
                 1 -> {
                     Text("Scope Guard", style = MaterialTheme.typography.titleMedium)
@@ -190,13 +210,19 @@ class MainActivity : ComponentActivity() {
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = sendRequest, enabled = !busy) { Text(if (busy) "Sending…" else "Execute") }
                         OutlinedButton(onClick = { baseline = result }, enabled = result.isNotBlank()) { Text("Baseline") }
-                        OutlinedButton(onClick = { if (result.isNotBlank()) findings = findings + "${method} ${url}\n${result.take(4000)}" }, enabled = result.isNotBlank()) { Text("Save finding") }
+                        OutlinedButton(onClick = { if (result.isNotBlank()) { store.saveFinding("${method} ${url}\n${redactSecrets(result.take(10000))}"); findings = store.loadFindings() } }, enabled = result.isNotBlank()) { Text("Save finding") }
+                        OutlinedButton(onClick = { tab = 3 }, enabled = lastExchange != null) { Text("Analyze") }
                         TextButton(onClick = { headers = ""; body = ""; result = "" }) { Text("Clear") }
                     }
                     Text("Response", style = MaterialTheme.typography.titleMedium)
                     SelectionText(result)
                 }
-                2 -> {
+                2 -> HistoryScreen(exchanges.filter { it.project == currentProject }, { item ->
+                    lastExchange = item; url = item.url; method = item.method; headers = item.requestHeaders; body = item.requestBody; result = Engine.render(item); tab = 1
+                }, { store.clearExchanges(); exchanges = emptyList(); lastExchange = null })
+                3 -> AnalysisScreen(lastExchange)
+                4 -> ProjectsScreen(projects, currentProject, { currentProject = it }, { name -> store.addProject(name); projects = store.loadProjects(); currentProject = name.trim().take(40) })
+                5 -> {
                     Text("Payload Intelligence", style = MaterialTheme.typography.titleLarge)
                     Text("Curated manual checks with context and expected interpretation.")
                     var q by remember { mutableStateOf("") }
@@ -209,7 +235,7 @@ class MainActivity : ComponentActivity() {
                         } }
                     }
                 }
-                3 -> {
+                6 -> {
                     Text("WAF Lab", style = MaterialTheme.typography.titleLarge)
                     Text("Manual normalization experiments; no automatic bypass or attack loop.")
                     var input by remember { mutableStateOf("HB_CANARY_2026") }
@@ -218,8 +244,8 @@ class MainActivity : ComponentActivity() {
                     variants.forEach { (name, value) -> Card { Column(Modifier.padding(12.dp)) { Text(name); SelectionText(value); TextButton(onClick = { if (method in listOf("GET", "HEAD")) { url = Engine.withTestParam(url, value); body = "" } else body = value; tab = 1 }) { Text("Use in Repeater") } } } }
                     Text("Compare a baseline with each manual request. A different status alone does not prove a bypass.")
                 }
-                4 -> Decoder()
-                5 -> {
+                7 -> Decoder()
+                8 -> {
                     Text("Response Diff", style = MaterialTheme.typography.titleLarge)
                     Text("Save a baseline in Repeater, then send another request.")
                     val delta = result.length - baseline.length
@@ -231,7 +257,7 @@ class MainActivity : ComponentActivity() {
                     Text("Evidence Vault", style = MaterialTheme.typography.titleLarge)
                     Text("Local findings captured from Repeater. Nothing is uploaded automatically.")
                     if (findings.isEmpty()) Text("No findings saved yet.")
-                    findings.forEachIndexed { i, item -> Card { Column(Modifier.padding(12.dp)) { Text("Finding #${i + 1}", fontWeight = FontWeight.Bold); SelectionText(item); TextButton(onClick = { findings = findings.filterIndexed { j, _ -> j != i } }) { Text("Remove") } } } }
+                    findings.forEachIndexed { i, item -> Card { Column(Modifier.padding(12.dp)) { Text("Finding #${i + 1}", fontWeight = FontWeight.Bold); SelectionText(item); TextButton(onClick = { store.removeFinding(i); findings = store.loadFindings() }) { Text("Remove") } } } }
                 }
             }
         }
