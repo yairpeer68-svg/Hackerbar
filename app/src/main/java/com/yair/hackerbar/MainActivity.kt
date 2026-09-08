@@ -32,14 +32,33 @@ import java.util.concurrent.TimeUnit
 
 object Engine {
     private val client = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).callTimeout(20, TimeUnit.SECONDS).build()
-    fun allowed(url: String, scope: String): Boolean {
-        val uri = URI(url)
-        val host = uri.host?.lowercase() ?: return false
-        return uri.scheme == "https" && uri.userInfo == null && uri.port in -1..65535 && scope.lines().map { it.trim().lowercase() }.filter { it.isNotEmpty() }.any { host == it } && uri.port != 0
+    fun normalizeUrl(raw: String): String {
+        val t = raw.trim()
+        return if (t.contains("://")) t else "https://$t"
     }
+    fun normalizeScopeEntry(raw: String): String {
+        val t = raw.trim().lowercase()
+        if (t.isBlank()) return ""
+        return runCatching { URI(normalizeUrl(t)).host?.lowercase().orEmpty() }.getOrDefault(t.substringBefore('/').substringBefore(':'))
+    }
+    fun hostOf(raw: String): String = runCatching { URI(normalizeUrl(raw)).host?.lowercase().orEmpty() }.getOrDefault("")
+    fun validationError(url: String, scope: String): String? {
+        val normalized = normalizeUrl(url)
+        val uri = runCatching { URI(normalized) }.getOrElse { return "Invalid URL" }
+        val host = uri.host?.lowercase() ?: return "URL must contain a valid host"
+        if (uri.scheme != "https") return "Only HTTPS requests are allowed"
+        if (uri.userInfo != null) return "User-info in URLs is not allowed"
+        if (uri.port == 0 || uri.port > 65535) return "Invalid port"
+        val hosts = scope.lines().map(::normalizeScopeEntry).filter { it.isNotBlank() }
+        if (hosts.isEmpty()) return "Add an allowed host to Scope (for example: $host)"
+        if (host !in hosts) return "$host is outside the current Scope"
+        return null
+    }
+    fun allowed(url: String, scope: String): Boolean = validationError(url, scope) == null
     fun send(url: String, scope: String, method: String, headers: String, body: String): String {
-        require(allowed(url, scope)) { "HTTPS host is outside the exact allowlist" }
-        val builder = Request.Builder().url(url)
+        val normalizedUrl = normalizeUrl(url)
+        require(allowed(normalizedUrl, scope)) { validationError(normalizedUrl, scope) ?: "Request is not allowed" }
+        val builder = Request.Builder().url(normalizedUrl)
         headers.lines().filter { it.isNotBlank() }.forEach { line ->
             val i = line.indexOf(':'); require(i > 0) { "Invalid header: $line" }
             val name = line.substring(0, i).trim()
@@ -77,7 +96,7 @@ class MainActivity : ComponentActivity() {
     var tab by remember { mutableIntStateOf(0) }
     var browserUrl by remember { mutableStateOf("https://example.com/") }
     val tabs = listOf("Browser", "Repeater", "Payloads", "WAF Lab", "Decoder", "Diff", "Findings")
-    var scope by remember { mutableStateOf("") }
+    var scope by remember { mutableStateOf("example.com") }
     var url by remember { mutableStateOf("https://example.com/") }
     var method by remember { mutableStateOf("GET") }
     var headers by remember { mutableStateOf("") }
@@ -95,6 +114,7 @@ class MainActivity : ComponentActivity() {
                 result = try {
                     require(System.currentTimeMillis() - lastSend >= 1000) { "Wait at least one second between requests" }
                     lastSend = System.currentTimeMillis()
+                    url = Engine.normalizeUrl(url)
                     withContext(Dispatchers.IO) { Engine.send(url, scope, method, headers, body) }
                 } catch (e: Exception) { "Error: ${e.message}" }
                 busy = false
@@ -109,22 +129,24 @@ class MainActivity : ComponentActivity() {
                 Text("DH HackerBar Mobile", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                 Text("Authorized Security Workbench", color = Color(0xFF72D6FF), style = MaterialTheme.typography.labelSmall)
             }
-            AssistChip(onClick = { tab = 0 }, label = { Text("Scope") })
+            AssistChip(onClick = { tab = 1 }, label = { Text("Scope") })
         }
         ScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp, containerColor = Color(0xFF0F1519)) { tabs.forEachIndexed { i, name -> Tab(selected = tab == i, onClick = { tab = i }, text = { Text(name) }) } }
         Column(Modifier.fillMaxSize().padding(6.dp).then(if (tab == 0) Modifier else Modifier.verticalScroll(rememberScrollState())), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             when (tab) {
-                0 -> BrowserWorkspace(browserUrl, { browserUrl = it }, { url = it; tab = 1 })
+                0 -> BrowserWorkspace(browserUrl, { browserUrl = it }, { target -> url = Engine.normalizeUrl(target); Engine.hostOf(target).takeIf { it.isNotBlank() }?.let { scope = it }; tab = 1 })
                 1 -> {
                     Text("Scope Guard", style = MaterialTheme.typography.titleMedium)
-                    OutlinedTextField(scope, { scope = it }, label = { Text("Allowed HTTPS hosts, one per line") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
-                    Text("Exact hosts only. No wildcards, redirects, or automatic cross-host requests.")
-                    OutlinedTextField(url, { url = it }, label = { Text("URL") }, modifier = Modifier.fillMaxWidth())
-                    Row { listOf("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD").forEach { m -> TextButton(onClick = { method = m }) { Text(if (method == m) "[$m]" else m) } } }
+                    OutlinedTextField(scope, { scope = it }, label = { Text("Allowed hosts, one per line (google.com or https://google.com)") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+                    Text("Exact HTTPS hosts only. URLs pasted here are normalized to host names automatically.")
+                    OutlinedTextField(url, { url = it }, label = { Text("URL (https:// optional)") }, modifier = Modifier.fillMaxWidth())
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) { listOf("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD").forEach { m -> TextButton(onClick = { method = m }) { Text(if (method == m) "[$m]" else m) } } }
                     OutlinedTextField(headers, { headers = it }, label = { Text("Headers: one per line") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
                     OutlinedTextField(body, { body = it }, label = { Text("Request body") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
+                    val validation = Engine.validationError(url, scope)
+                    if (validation != null) Text(validation, color = Color(0xFFFFC857), style = MaterialTheme.typography.bodySmall)
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = sendRequest, enabled = !busy && runCatching { Engine.allowed(url, scope) }.getOrDefault(false)) { Text(if (busy) "Sending…" else "Execute") }
+                        Button(onClick = sendRequest, enabled = !busy) { Text(if (busy) "Sending…" else "Execute") }
                         OutlinedButton(onClick = { baseline = result }, enabled = result.isNotBlank()) { Text("Baseline") }
                         OutlinedButton(onClick = { if (result.isNotBlank()) findings = findings + "${method} ${url}\n${result.take(4000)}" }, enabled = result.isNotBlank()) { Text("Save finding") }
                         TextButton(onClick = { headers = ""; body = ""; result = "" }) { Text("Clear") }
