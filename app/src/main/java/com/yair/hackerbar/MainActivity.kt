@@ -32,6 +32,8 @@ import java.net.URLEncoder
 import java.util.Base64
 import java.util.concurrent.TimeUnit
 
+private const val PRIVACY_UA_FOR_REPEATER = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
+
 object Engine {
     private val client = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).callTimeout(20, TimeUnit.SECONDS).build()
     fun normalizeUrl(raw: String): String {
@@ -173,8 +175,9 @@ class MainActivity : ComponentActivity() {
                     Engine.hostOf(req.url).takeIf { it.isNotBlank() }?.let { scope = it }
                     method = req.method.uppercase().takeIf { it in listOf("GET","POST","PUT","PATCH","DELETE","HEAD") } ?: "GET"
                     headers = req.headers.entries
-                        .filterNot { (k, _) -> k.equals("Host", true) || k.equals("Content-Length", true) }
+                        .filterNot { (k, _) -> k.equals("Host", true) || k.equals("Content-Length", true) || k.startsWith("sec-ch-ua", true) || k.equals("X-Requested-With", true) || k.equals("User-Agent", true) }
                         .joinToString("\n") { (k, v) -> "$k: $v" }
+                    headers = listOf(headers, "User-Agent: $PRIVACY_UA_FOR_REPEATER", "sec-ch-ua: \"Google Chrome\";v=\"151\", \"Chromium\";v=\"151\"", "sec-ch-ua-mobile: ?0", "sec-ch-ua-platform: \"Windows\"").filter { it.isNotBlank() }.joinToString("\n")
                     body = ""
                     result = "Captured from Browser: ${method} ${url}"
                     tab = 1
@@ -183,8 +186,9 @@ class MainActivity : ComponentActivity() {
                     Engine.hostOf(req.url).takeIf { it.isNotBlank() }?.let { scope = it }
                     method = req.method.uppercase().takeIf { it in listOf("GET","POST","PUT","PATCH","DELETE","HEAD") } ?: "GET"
                     headers = req.headers.entries
-                        .filterNot { (k, _) -> k.equals("Host", true) || k.equals("Content-Length", true) }
+                        .filterNot { (k, _) -> k.equals("Host", true) || k.equals("Content-Length", true) || k.startsWith("sec-ch-ua", true) || k.equals("X-Requested-With", true) || k.equals("User-Agent", true) }
                         .joinToString("\n") { (k, v) -> "$k: $v" }
+                    headers = listOf(headers, "User-Agent: $PRIVACY_UA_FOR_REPEATER", "sec-ch-ua: \"Google Chrome\";v=\"151\", \"Chromium\";v=\"151\"", "sec-ch-ua-mobile: ?0", "sec-ch-ua-platform: \"Windows\"").filter { it.isNotBlank() }.joinToString("\n")
                     val testValue = when (tool) {
                         "SQLi" -> "'"
                         "XSS" -> "HB_CANARY_2026"

@@ -15,7 +15,34 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import org.json.JSONObject
+import androidx.webkit.UserAgentMetadata
+import androidx.webkit.WebSettingsCompat
+import androidx.webkit.WebViewFeature
 import java.util.concurrent.atomic.AtomicReference
+
+private const val PRIVACY_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
+
+private fun applyPrivacyIdentity(web: WebView) {
+    web.settings.userAgentString = PRIVACY_UA
+    if (WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA)) {
+        val chrome = UserAgentMetadata.BrandVersion.Builder()
+            .setBrand("Google Chrome").setMajorVersion("151").setFullVersion("151.0.0.0").build()
+        val chromium = UserAgentMetadata.BrandVersion.Builder()
+            .setBrand("Chromium").setMajorVersion("151").setFullVersion("151.0.0.0").build()
+        val metadata = UserAgentMetadata.Builder()
+            .setBrandVersionList(listOf(chrome, chromium))
+            .setFullVersion("151.0.0.0")
+            .setPlatform("Windows")
+            .setPlatformVersion("10.0.0")
+            .setArchitecture("x86")
+            .setBitness(64)
+            .setModel("")
+            .setMobile(false)
+            .setWow64(false)
+            .build()
+        WebSettingsCompat.setUserAgentMetadata(web.settings, metadata)
+    }
+}
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable fun BrowserWorkspace(initialUrl: String, onUrl: (String)->Unit, toRepeater: (CapturedRequest)->Unit, toTool: (String, CapturedRequest)->Unit) {
@@ -27,12 +54,12 @@ import java.util.concurrent.atomic.AtomicReference
     var loading by remember { mutableStateOf(false) }
     var noRedirect by remember { mutableStateOf(false) }
     var jsEnabled by remember { mutableStateOf(true) }
-    var desktop by remember { mutableStateOf(false) }
+    var desktop by remember { mutableStateOf(true) }
     var progress by remember { mutableIntStateOf(0) }
     val web = remember { WebView(context) }
     val history = remember { mutableStateListOf<String>() }
     val capturedMainRequest = remember { AtomicReference<CapturedRequest?>(null) }
-    val defaultAgent = remember { WebSettings.getDefaultUserAgent(context) }
+    val defaultAgent = remember { PRIVACY_UA }
     fun navigate(raw: String) {
         val target = if (raw.contains("://")) raw else "https://$raw"
         val uri = runCatching { Uri.parse(target) }.getOrNull()
@@ -90,7 +117,7 @@ import java.util.concurrent.atomic.AtomicReference
             Row { TextButton(onClick = { web.clearCache(true); web.reload(); panel = "" }) { Text("Restart") }; TextButton(onClick = { panel = "About" }) { Text("About") } }
             Row { Checkbox(jsEnabled, { jsEnabled = it; web.settings?.javaScriptEnabled = it }); Text("JavaScript") }
             Row { Checkbox(noRedirect, { noRedirect = it }); Text("No Redirection") }
-            Row { Checkbox(desktop, { desktop = it; web.settings?.userAgentString = if (it) "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36" else defaultAgent; web.reload() }); Text("Desktop User Agent") }
+            Row { Checkbox(desktop, { desktop = it; if (it) applyPrivacyIdentity(web) else web.settings.userAgentString = WebSettings.getDefaultUserAgent(context); web.reload() }); Text("Privacy Desktop Identity") }
         }
         if (panel.isNotEmpty() && panel != "Menu") {
             Text(panel, style = MaterialTheme.typography.titleMedium)
@@ -119,12 +146,20 @@ import java.util.concurrent.atomic.AtomicReference
         AndroidView(factory = { ctx -> web.apply {
             settings.javaScriptEnabled = jsEnabled
             settings.domStorageEnabled = true
+            settings.geolocationEnabled = false
+            settings.saveFormData = false
             settings.allowFileAccess = false
             settings.allowContentAccess = false
             settings.setSupportMultipleWindows(false)
             settings.javaScriptCanOpenWindowsAutomatically = false
             settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            webChromeClient = object : WebChromeClient() { override fun onProgressChanged(view: WebView?, newProgress: Int) { progress = newProgress } }
+            CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
+            applyPrivacyIdentity(this)
+            webChromeClient = object : WebChromeClient() {
+                override fun onProgressChanged(view: WebView?, newProgress: Int) { progress = newProgress }
+                override fun onPermissionRequest(request: PermissionRequest?) { request?.deny() }
+                override fun onGeolocationPermissionsShowPrompt(origin: String?, callback: GeolocationPermissions.Callback?) { callback?.invoke(origin, false, false) }
+            }
             webViewClient = object : WebViewClient() {
                 override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest): WebResourceResponse? {
                     if (request.isForMainFrame) {

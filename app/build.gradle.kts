@@ -5,7 +5,7 @@ plugins {
 android {
     namespace = "com.yair.hackerbar"
     compileSdk = 36
-    defaultConfig { applicationId = "com.yair.hackerbar"; minSdk = 26; targetSdk = 36; versionCode = 4; versionName = "0.1.3" }
+    defaultConfig { applicationId = "com.yair.hackerbar"; minSdk = 26; targetSdk = 36; versionCode = 5; versionName = "0.1.4" }
     buildFeatures { compose = true }
 }
 dependencies {
@@ -17,4 +17,5 @@ dependencies {
     implementation("androidx.compose.ui:ui-tooling-preview")
     debugImplementation("androidx.compose.ui:ui-tooling")
     implementation("com.squareup.okhttp3:okhttp:5.1.0")
+    implementation("androidx.webkit:webkit:1.16.0")
 }
