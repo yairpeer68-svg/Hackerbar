@@ -31,11 +31,15 @@ import java.net.URI
 import java.net.URLEncoder
 import java.util.Base64
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 
 private const val PRIVACY_UA_FOR_REPEATER = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36"
 
 object Engine {
+    private const val MAX_RESPONSE_BYTES = 262144L
     private val client = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false).callTimeout(20, TimeUnit.SECONDS).build()
+    private val activeCall = AtomicReference<Call?>(null)
+    fun cancelActive() { activeCall.getAndSet(null)?.cancel() }
     fun normalizeUrl(raw: String): String {
         val t = raw.trim()
         return if (t.contains("://")) t else "https://$t"
@@ -64,31 +68,42 @@ object Engine {
         val normalizedUrl = normalizeUrl(url)
         require(allowed(normalizedUrl, scope)) { validationError(normalizedUrl, scope) ?: "Request is not allowed" }
         val builder = Request.Builder().url(normalizedUrl)
+        var requestType: MediaType? = null
         headers.lines().filter { it.isNotBlank() }.forEach { line ->
             val i = line.indexOf(':'); require(i > 0) { "Invalid header: $line" }
             val name = line.substring(0, i).trim()
+            val value = line.substring(i + 1).trim()
             require(!name.equals("Host", true)) { "Host override is not supported" }
-            builder.addHeader(name, line.substring(i + 1).trim())
+            if (name.equals("Content-Length", true) || name.equals("Transfer-Encoding", true)) return@forEach
+            if (name.equals("Content-Type", true)) requestType = value.toMediaType()
+            builder.addHeader(name, value)
         }
-        val payload = if (method == "GET" || method == "HEAD") null else body.toRequestBody("text/plain; charset=utf-8".toMediaType())
+        val payload = if (method == "GET" || method == "HEAD") null else body.toRequestBody(requestType ?: "text/plain; charset=utf-8".toMediaType())
         builder.method(method, payload)
         val started = System.nanoTime()
-        client.newCall(builder.build()).execute().use { response ->
-            val bytes = response.body?.bytes() ?: ByteArray(0)
-            val text = bytes.toString(Charsets.UTF_8).take(200000)
-            return HttpExchange(
-                project = project, method = method, url = normalizedUrl, requestHeaders = headers, requestBody = body,
-                status = response.code, responseHeaders = response.headers.toString(), responseBody = text,
-                durationMs = (System.nanoTime() - started) / 1_000_000, responseBytes = bytes.size.toLong()
-            )
-        }
+        val call = client.newCall(builder.build())
+        activeCall.set(call)
+        try {
+            call.execute().use { response ->
+                val responseBody = response.body
+                val type = responseBody?.contentType()
+                val source = responseBody?.source()
+                val bytes = source?.readByteArray(MAX_RESPONSE_BYTES + 1) ?: ByteArray(0)
+                val truncated = bytes.size > MAX_RESPONSE_BYTES
+                val safeBytes = if (truncated) bytes.copyOf(MAX_RESPONSE_BYTES.toInt()) else bytes
+                val mime = type?.type.orEmpty() + "/" + type?.subtype.orEmpty()
+                val textual = type == null || type.type == "text" || type.subtype.contains("json", true) || type.subtype.contains("xml", true) || type.subtype.contains("javascript", true) || type.subtype.contains("html", true)
+                val text = if (textual) safeBytes.toString(type?.charset(Charsets.UTF_8) ?: Charsets.UTF_8) + if (truncated) "\n[response truncated at 256 KiB]" else "" else "[binary response omitted: $mime, ${responseBody?.contentLength()?.takeIf { it >= 0 } ?: safeBytes.size.toLong()} bytes]"
+                return HttpExchange(project = project, method = method, url = normalizedUrl, requestHeaders = headers, requestBody = body, status = response.code, responseHeaders = response.headers.toString(), responseBody = text, durationMs = (System.nanoTime() - started) / 1_000_000, responseBytes = responseBody?.contentLength()?.takeIf { it >= 0 } ?: safeBytes.size.toLong())
+            }
+        } finally { activeCall.compareAndSet(call, null) }
     }
     fun render(exchange: HttpExchange): String =
         "HTTP ${exchange.status}\n${exchange.responseHeaders}\n${exchange.responseBody}"
 
 }
 
-data class CapturedRequest(val url: String, val method: String, val headers: Map<String, String>)
+data class CapturedRequest(val url: String, val method: String, val headers: Map<String, String>, val body: String = "")
 data class Payload(val category: String, val name: String, val value: String, val note: String)
 val payloads = listOf(
     Payload("XSS", "HTML reflection canary", "HB_CANARY_2026", "Check reflection and output encoding before any active proof."),
@@ -178,8 +193,8 @@ class MainActivity : ComponentActivity() {
                         .filterNot { (k, _) -> k.equals("Host", true) || k.equals("Content-Length", true) || k.startsWith("sec-ch-ua", true) || k.equals("X-Requested-With", true) || k.equals("User-Agent", true) }
                         .joinToString("\n") { (k, v) -> "$k: $v" }
                     headers = listOf(headers, "User-Agent: $PRIVACY_UA_FOR_REPEATER", "sec-ch-ua: \"Google Chrome\";v=\"151\", \"Chromium\";v=\"151\"", "sec-ch-ua-mobile: ?0", "sec-ch-ua-platform: \"Windows\"").filter { it.isNotBlank() }.joinToString("\n")
-                    body = ""
-                    result = "Captured from Browser: ${method} ${url}"
+                    body = req.body.take(128000)
+                    result = "Captured from Browser: ${method} ${url}${if (body.isNotBlank()) " · body ${body.length} chars" else ""}"
                     tab = 1
                 }, { tool, req ->
                     url = Engine.normalizeUrl(req.url)
@@ -189,6 +204,7 @@ class MainActivity : ComponentActivity() {
                         .filterNot { (k, _) -> k.equals("Host", true) || k.equals("Content-Length", true) || k.startsWith("sec-ch-ua", true) || k.equals("X-Requested-With", true) || k.equals("User-Agent", true) }
                         .joinToString("\n") { (k, v) -> "$k: $v" }
                     headers = listOf(headers, "User-Agent: $PRIVACY_UA_FOR_REPEATER", "sec-ch-ua: \"Google Chrome\";v=\"151\", \"Chromium\";v=\"151\"", "sec-ch-ua-mobile: ?0", "sec-ch-ua-platform: \"Windows\"").filter { it.isNotBlank() }.joinToString("\n")
+                    body = req.body.take(128000)
                     val testValue = when (tool) {
                         "SQLi" -> "'"
                         "XSS" -> "HB_CANARY_2026"
@@ -224,6 +240,7 @@ class MainActivity : ComponentActivity() {
                     }
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = sendRequest, enabled = !busy) { Text(if (busy) "Sending…" else "Execute") }
+                        if (busy) OutlinedButton(onClick = { Engine.cancelActive() }) { Text("Cancel") }
                         OutlinedButton(onClick = { baseline = result }, enabled = result.isNotBlank()) { Text("Baseline") }
                         OutlinedButton(onClick = { if (result.isNotBlank()) { store.saveFinding("${method} ${url}\n${redactSecrets(result.take(10000))}"); findings = store.loadFindings() } }, enabled = result.isNotBlank()) { Text("Save finding") }
                         OutlinedButton(onClick = { tab = 3 }, enabled = lastExchange != null) { Text("Analyze") }
