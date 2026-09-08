@@ -121,8 +121,8 @@ fun redactSecrets(text: String): String = text.lineSequence().joinToString("\n")
 fun redactSensitiveBody(text: String): String {
     var out = text
     val jsonKeys = "password|passwd|token|access_token|refresh_token|api_key|apikey|secret|client_secret"
-    out = Regex("(?i)(\"(?:$jsonKeys)\"\s*:\s*\")[^\"]*").replace(out) { it.groupValues[1] + "[REDACTED]" }
-    out = Regex("(?i)((?:^|[&;])(?:password|passwd|token|access_token|refresh_token|api_key|apikey|secret|client_secret)=)[^&;\r\n]*").replace(out) { it.groupValues[1] + "[REDACTED]" }
+    out = Regex("""(?i)("(?:$jsonKeys)"\s*:\s*")[^"]*""").replace(out) { it.groupValues[1] + "[REDACTED]" }
+    out = Regex("""(?i)((?:^|[&;])(?:password|passwd|token|access_token|refresh_token|api_key|apikey|secret|client_secret)=)[^&;\r\n]*""").replace(out) { it.groupValues[1] + "[REDACTED]" }
     return out
 }
 
