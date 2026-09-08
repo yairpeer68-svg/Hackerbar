@@ -55,6 +55,7 @@ private fun applyPrivacyIdentity(web: WebView) {
     var noRedirect by remember { mutableStateOf(false) }
     var jsEnabled by remember { mutableStateOf(true) }
     var desktop by remember { mutableStateOf(true) }
+    var apiCaptureEnabled by remember { mutableStateOf(false) }
     var progress by remember { mutableIntStateOf(0) }
     val web = remember { WebView(context) }
     val history = remember { mutableStateListOf<String>() }
@@ -78,6 +79,22 @@ private fun applyPrivacyIdentity(web: WebView) {
         web.settings.userAgentString?.takeIf { it.isNotBlank() }?.let { fallbackHeaders["User-Agent"] = it }
         CookieManager.getInstance().getCookie(page)?.takeIf { it.isNotBlank() }?.let { fallbackHeaders["Cookie"] = it }
         return capturedMainRequest.get()?.copy(url = page) ?: CapturedRequest(page, "GET", fallbackHeaders)
+    }
+    fun captureLastApiToRepeater() {
+        web.evaluateJavascript(API_CAPTURE_LAST_SCRIPT) { raw ->
+            val decoded = runCatching { JSONObject("{\"v\":$raw}").getString("v") }.getOrDefault(raw)
+            val obj = runCatching { JSONObject(decoded) }.getOrNull()
+            if (obj == null || obj.has("error")) {
+                panel = "API Capture"
+                source = obj?.optString("error") ?: "Unable to read captured request"
+                return@evaluateJavascript
+            }
+            val h = linkedMapOf<String, String>()
+            val jsonHeaders = obj.optJSONObject("headers")
+            jsonHeaders?.keys()?.forEach { k -> h[k] = jsonHeaders.optString(k) }
+            val req = CapturedRequest(obj.optString("url", current), obj.optString("method", "GET").uppercase(), h, obj.optString("body").take(128000))
+            toRepeater(req)
+        }
     }
     fun captureFormToRepeater() {
         web.evaluateJavascript(FORM_CAPTURE_SCRIPT) { raw ->
@@ -111,6 +128,11 @@ private fun applyPrivacyIdentity(web: WebView) {
             OutlinedButton(onClick = { web.stopLoading() }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("Stop") }
             OutlinedButton(onClick = { toRepeater(currentRequest()) }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("Repeater") }
             OutlinedButton(onClick = { captureFormToRepeater() }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("Form→Repeater") }
+            OutlinedButton(onClick = {
+                if (apiCaptureEnabled) { apiCaptureEnabled = false; web.reload() }
+                else { apiCaptureEnabled = true; web.evaluateJavascript(API_CAPTURE_INSTALL_SCRIPT, null) }
+            }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text(if (apiCaptureEnabled) "API Capture: ON" else "API Capture: OFF") }
+            OutlinedButton(onClick = { captureLastApiToRepeater() }, enabled = apiCaptureEnabled, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("Last API→Repeater") }
         }
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
             listOf("SQL" to "SQLi", "XSS" to "XSS", "LFI" to "LFI / Traversal", "SSTI" to "SSTI", "SSRF" to "SSRF", "Auth" to "Authorization", "WAF" to "WAF Lab").forEach { (label, target) ->
@@ -152,6 +174,7 @@ private fun applyPrivacyIdentity(web: WebView) {
                 "Tamper Data" -> { Text("Edit the current request in Repeater."); Button(onClick = { toRepeater(currentRequest()) }) { Text("Open Repeater") } }
                 "Headers" -> SelectionText("Browser request-header editing is intentionally separated from WebView. Use Repeater for exact request control. Current page: $current")
                 "Form Capture" -> SelectionText(source)
+                "API Capture" -> SelectionText(source)
                 "Cookies" -> SelectionText(CookieManager.getInstance().getCookie(current) ?: "No cookies for current page")
                 "User Agent" -> SelectionText(web.settings.userAgentString ?: defaultAgent)
                 "SQLi" -> SelectionText("Manual SQL checks: quote handling ( ' ), boolean comparison (1 AND 1=1), baseline/error comparison. Use Repeater on an authorized parameter.")
@@ -205,7 +228,11 @@ private fun applyPrivacyIdentity(web: WebView) {
                     return false
                 }
                 override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) { loading = true; url?.let { current = it; address = it; onUrl(it) } }
-                override fun onPageFinished(view: WebView?, url: String?) { loading = false; url?.let { if (history.lastOrNull() != it) history.add(it) } }
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    loading = false
+                    url?.let { if (history.lastOrNull() != it) history.add(it) }
+                    if (apiCaptureEnabled) view?.evaluateJavascript(API_CAPTURE_INSTALL_SCRIPT, null)
+                }
                 override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) { if (request?.isForMainFrame == true) { panel = "Page error"; source = error?.description?.toString().orEmpty() } }
             }
             loadUrl(initialUrl); 
