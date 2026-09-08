@@ -79,6 +79,23 @@ private fun applyPrivacyIdentity(web: WebView) {
         CookieManager.getInstance().getCookie(page)?.takeIf { it.isNotBlank() }?.let { fallbackHeaders["Cookie"] = it }
         return capturedMainRequest.get()?.copy(url = page) ?: CapturedRequest(page, "GET", fallbackHeaders)
     }
+    fun captureFormToRepeater() {
+        web.evaluateJavascript(FORM_CAPTURE_SCRIPT) { raw ->
+            val decoded = runCatching { JSONObject("{\"v\":$raw}").getString("v") }.getOrDefault(raw)
+            val obj = runCatching { JSONObject(decoded) }.getOrNull()
+            if (obj == null || obj.has("error")) {
+                panel = "Form Capture"
+                source = obj?.optString("error") ?: "Unable to read form"
+                return@evaluateJavascript
+            }
+            val target = obj.optString("url", current)
+            val capturedMethod = obj.optString("method", "POST").uppercase()
+            val capturedBody = obj.optString("body").take(128000)
+            val type = obj.optString("contentType", "application/x-www-form-urlencoded")
+            val base = currentRequest().copy(url = target, method = capturedMethod, body = capturedBody)
+            toRepeater(base.copy(headers = base.headers + ("Content-Type" to type)))
+        }
+    }
     BackHandler(web.canGoBack() == true && panel.isEmpty()) { web.goBack() }
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -93,6 +110,7 @@ private fun applyPrivacyIdentity(web: WebView) {
             OutlinedButton(onClick = { web.reload() }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("Reload") }
             OutlinedButton(onClick = { web.stopLoading() }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("Stop") }
             OutlinedButton(onClick = { toRepeater(currentRequest()) }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("Repeater") }
+            OutlinedButton(onClick = { captureFormToRepeater() }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("Form→Repeater") }
         }
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
             listOf("SQL" to "SQLi", "XSS" to "XSS", "LFI" to "LFI / Traversal", "SSTI" to "SSTI", "SSRF" to "SSRF", "Auth" to "Authorization", "WAF" to "WAF Lab").forEach { (label, target) ->
@@ -126,6 +144,7 @@ private fun applyPrivacyIdentity(web: WebView) {
                 "History" -> history.asReversed().take(30).forEach { h -> TextButton(onClick = { navigate(h); panel = "" }) { Text(h) } }
                 "Tamper Data" -> { Text("Edit the current request in Repeater."); Button(onClick = { toRepeater(currentRequest()) }) { Text("Open Repeater") } }
                 "Headers" -> SelectionText("Browser request-header editing is intentionally separated from WebView. Use Repeater for exact request control. Current page: $current")
+                "Form Capture" -> SelectionText(source)
                 "Cookies" -> SelectionText(CookieManager.getInstance().getCookie(current) ?: "No cookies for current page")
                 "User Agent" -> SelectionText(web.settings.userAgentString ?: defaultAgent)
                 "SQLi" -> SelectionText("Manual SQL checks: quote handling ( ' ), boolean comparison (1 AND 1=1), baseline/error comparison. Use Repeater on an authorized parameter.")
