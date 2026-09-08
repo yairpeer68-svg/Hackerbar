@@ -24,6 +24,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.*
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import java.net.URI
 import java.net.URLEncoder
@@ -42,6 +43,7 @@ object Engine {
         return runCatching { URI(normalizeUrl(t)).host?.lowercase().orEmpty() }.getOrDefault(t.substringBefore('/').substringBefore(':'))
     }
     fun hostOf(raw: String): String = runCatching { URI(normalizeUrl(raw)).host?.lowercase().orEmpty() }.getOrDefault("")
+    fun withTestParam(raw: String, value: String): String = normalizeUrl(raw).toHttpUrl().newBuilder().setQueryParameter("hb_test", value).build().toString()
     fun validationError(url: String, scope: String): String? {
         val normalized = normalizeUrl(url)
         val uri = runCatching { URI(normalized) }.getOrElse { return "Invalid URL" }
@@ -152,14 +154,16 @@ class MainActivity : ComponentActivity() {
                     headers = req.headers.entries
                         .filterNot { (k, _) -> k.equals("Host", true) || k.equals("Content-Length", true) }
                         .joinToString("\n") { (k, v) -> "$k: $v" }
-                    body = when (tool) {
+                    val testValue = when (tool) {
                         "SQLi" -> "'"
                         "XSS" -> "HB_CANARY_2026"
                         "LFI / Traversal" -> "../HB_CANARY_2026"
                         "SSTI" -> "{{7*7}}"
                         "SSRF" -> "https://example.com/HB_CANARY_2026"
-                        "Authorization" -> ""
-                        else -> body
+                        else -> ""
+                    }
+                    if (testValue.isNotBlank()) {
+                        if (method in listOf("GET", "HEAD")) { url = Engine.withTestParam(url, testValue); body = "" } else body = testValue
                     }
                     if (tool == "Authorization" && headers.lineSequence().none { it.startsWith("Authorization:", true) }) {
                         headers = listOf(headers, "Authorization: Bearer TEST_TOKEN").filter { it.isNotBlank() }.joinToString("\n")
@@ -201,7 +205,7 @@ class MainActivity : ComponentActivity() {
                         Card { Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                             Text("${p.category} · ${p.name}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                             SelectionText(p.value); Text(p.note, style = MaterialTheme.typography.bodySmall)
-                            TextButton(onClick = { body = p.value; tab = 1 }) { Text("Send to Repeater") }
+                            TextButton(onClick = { if (method in listOf("GET", "HEAD")) { url = Engine.withTestParam(url, p.value); body = "" } else body = p.value; tab = 1 }) { Text("Send to Repeater") }
                         } }
                     }
                 }
@@ -211,7 +215,7 @@ class MainActivity : ComponentActivity() {
                     var input by remember { mutableStateOf("HB_CANARY_2026") }
                     OutlinedTextField(input, { input = it }, label = { Text("Test canary") }, modifier = Modifier.fillMaxWidth())
                     val variants = listOf("Original" to input, "URL encoded" to URLEncoder.encode(input, "UTF-8"), "Double encoded" to URLEncoder.encode(URLEncoder.encode(input, "UTF-8"), "UTF-8"), "Uppercase" to input.uppercase(), "Lowercase" to input.lowercase())
-                    variants.forEach { (name, value) -> Card { Column(Modifier.padding(12.dp)) { Text(name); SelectionText(value); TextButton(onClick = { body = value; tab = 1 }) { Text("Use in Repeater") } } } }
+                    variants.forEach { (name, value) -> Card { Column(Modifier.padding(12.dp)) { Text(name); SelectionText(value); TextButton(onClick = { if (method in listOf("GET", "HEAD")) { url = Engine.withTestParam(url, value); body = "" } else body = value; tab = 1 }) { Text("Use in Repeater") } } } }
                     Text("Compare a baseline with each manual request. A different status alone does not prove a bypass.")
                 }
                 4 -> Decoder()
