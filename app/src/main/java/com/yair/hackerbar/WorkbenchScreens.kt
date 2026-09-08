@@ -44,6 +44,7 @@ fun AnalysisScreen(exchange: HttpExchange?) {
             Text(f.evidence, style = MaterialTheme.typography.bodySmall)
             Text(f.recommendation, style = MaterialTheme.typography.bodySmall)
         } }
+        }
         Text("Response headers", fontWeight = FontWeight.Bold)
         SelectionText(redactSecrets(exchange.responseHeaders))
     }
