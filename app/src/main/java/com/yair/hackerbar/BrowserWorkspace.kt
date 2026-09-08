@@ -131,8 +131,8 @@ import java.util.concurrent.atomic.AtomicReference
                         val h = linkedMapOf<String, String>()
                         h.putAll(request.requestHeaders)
                         val page = request.url.toString()
-                        CookieManager.getInstance().getCookie(page)?.takeIf { it.isNotBlank() && h.keys.none { k -> k.equals("Cookie", true) } }?.let { h["Cookie"] = it }
-                        web.settings.userAgentString?.takeIf { it.isNotBlank() && h.keys.none { k -> k.equals("User-Agent", true) } }?.let { h["User-Agent"] = it }
+                        // shouldInterceptRequest runs on a Chromium worker thread. Never touch WebView here.
+                        // request.requestHeaders already contains the main-frame headers exposed by WebView.
                         capturedMainRequest.set(CapturedRequest(page, request.method ?: "GET", h))
                     }
                     return super.shouldInterceptRequest(view, request)

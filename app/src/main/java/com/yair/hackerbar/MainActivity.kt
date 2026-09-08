@@ -106,7 +106,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) { super.onCreate(savedInstanceState); CrashReporter.install(this); setContent { MaterialTheme(colorScheme = darkColorScheme()) { App() } } }
 }
 @Composable fun App() {
-    var tab by remember { mutableIntStateOf(1) }
+    var tab by remember { mutableIntStateOf(0) }
     var browserUrl by remember { mutableStateOf("https://example.com/") }
     val tabs = listOf("Browser", "Repeater", "History", "Analyze", "Projects", "Payloads", "WAF Lab", "Decoder", "Diff", "Findings")
     var scope by remember { mutableStateOf("example.com") }
