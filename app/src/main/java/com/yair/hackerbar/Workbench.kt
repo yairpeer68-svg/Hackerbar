@@ -42,7 +42,12 @@ class WorkbenchStore(context: Context) {
         prefs.edit().putString("exchanges", arr.toString()).apply()
     }
 
-    fun clearExchanges() = prefs.edit().remove("exchanges").apply()
+    fun clearExchanges(project: String? = null) {
+        if (project == null) { prefs.edit().remove("exchanges").apply(); return }
+        val keep = loadExchanges().filterNot { it.project == project }
+        val arr = JSONArray(); keep.forEach { arr.put(it.toJson()) }
+        prefs.edit().putString("exchanges", arr.toString()).apply()
+    }
 
     fun loadProjects(): List<String> = runCatching {
         val arr = JSONArray(prefs.getString("projects", "[\"Default\"]") ?: "[\"Default\"]")

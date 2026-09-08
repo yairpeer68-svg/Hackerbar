@@ -145,12 +145,13 @@ class MainActivity : ComponentActivity() {
     var storageWarning by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         runCatching {
-            findings = store.loadFindings()
-            exchanges = store.loadExchanges()
-            projects = store.loadProjects().ifEmpty { listOf("Default") }
+            val loaded = withContext(Dispatchers.IO) { Triple(store.loadFindings(), store.loadExchanges(), store.loadProjects().ifEmpty { listOf("Default") }) }
+            findings = loaded.first
+            exchanges = loaded.second
+            projects = loaded.third
             currentProject = projects.first()
             lastExchange = exchanges.firstOrNull()
-        }.onFailure { storageWarning = "Local workbench data was reset safely: ${it.javaClass.simpleName}" }
+        }.onFailure { storageWarning = "Could not load local workbench data: ${it.javaClass.simpleName}" }
     }
     val coroutine = rememberCoroutineScope()
     val sendRequest = {
@@ -162,8 +163,8 @@ class MainActivity : ComponentActivity() {
                     lastSend = System.currentTimeMillis()
                     url = Engine.normalizeUrl(url)
                     val exchange = withContext(Dispatchers.IO) { Engine.sendDetailed(url, scope, method, headers, body, currentProject) }
-                    store.saveExchange(exchange)
-                    exchanges = store.loadExchanges()
+                    withContext(Dispatchers.IO) { store.saveExchange(exchange) }
+                    exchanges = withContext(Dispatchers.IO) { store.loadExchanges() }
                     lastExchange = exchange
                     Engine.render(exchange)
                 } catch (e: Exception) { "Error: ${e.message}" }
@@ -251,7 +252,7 @@ class MainActivity : ComponentActivity() {
                 }
                 2 -> HistoryScreen(exchanges.filter { it.project == currentProject }, { item ->
                     lastExchange = item; url = item.url; method = item.method; headers = item.requestHeaders; body = item.requestBody; result = Engine.render(item); tab = 1
-                }, { store.clearExchanges(); exchanges = emptyList(); lastExchange = null })
+                }, { coroutine.launch { withContext(Dispatchers.IO) { store.clearExchanges(currentProject) }; exchanges = withContext(Dispatchers.IO) { store.loadExchanges() }; lastExchange = null } })
                 3 -> AnalysisScreen(lastExchange)
                 4 -> ProjectsScreen(projects, currentProject, { currentProject = it }, { name -> store.addProject(name); projects = store.loadProjects(); currentProject = name.trim().take(40) })
                 5 -> {
