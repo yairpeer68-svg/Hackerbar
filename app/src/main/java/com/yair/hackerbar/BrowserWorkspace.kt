@@ -36,7 +36,7 @@ private fun applyPrivacyIdentity(web: WebView) {
             .setPlatformVersion("10.0.0")
             .setArchitecture("x86")
             .setBitness(64)
-            .setModel("")
+            .setModel("Desktop")
             .setMobile(false)
             .setWow64(false)
             .build()
@@ -146,7 +146,7 @@ private fun applyPrivacyIdentity(web: WebView) {
         AndroidView(factory = { ctx -> web.apply {
             settings.javaScriptEnabled = jsEnabled
             settings.domStorageEnabled = true
-            settings.geolocationEnabled = false
+            settings.setGeolocationEnabled(false)
             settings.saveFormData = false
             settings.allowFileAccess = false
             settings.allowContentAccess = false
