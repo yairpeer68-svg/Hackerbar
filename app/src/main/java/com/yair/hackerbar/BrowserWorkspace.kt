@@ -18,7 +18,7 @@ import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicReference
 
 @SuppressLint("SetJavaScriptEnabled")
-@Composable fun BrowserWorkspace(initialUrl: String, onUrl: (String)->Unit, toRepeater: (CapturedRequest)->Unit) {
+@Composable fun BrowserWorkspace(initialUrl: String, onUrl: (String)->Unit, toRepeater: (CapturedRequest)->Unit, toTool: (String, CapturedRequest)->Unit) {
     val context = LocalContext.current
     var address by remember { mutableStateOf(initialUrl) }
     var current by remember { mutableStateOf(initialUrl) }
@@ -45,6 +45,13 @@ import java.util.concurrent.atomic.AtomicReference
             source = runCatching { JSONObject("{\"v\":$result}").getString("v") }.getOrDefault(result)
         }
     }
+    fun currentRequest(): CapturedRequest {
+        val page = current.ifBlank { address }
+        val fallbackHeaders = linkedMapOf<String, String>()
+        web.settings.userAgentString?.takeIf { it.isNotBlank() }?.let { fallbackHeaders["User-Agent"] = it }
+        CookieManager.getInstance().getCookie(page)?.takeIf { it.isNotBlank() }?.let { fallbackHeaders["Cookie"] = it }
+        return capturedMainRequest.get()?.copy(url = page) ?: CapturedRequest(page, "GET", fallbackHeaders)
+    }
     BackHandler(web.canGoBack() == true && panel.isEmpty()) { web.goBack() }
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -58,17 +65,11 @@ import java.util.concurrent.atomic.AtomicReference
             Button(onClick = { navigate(address) }, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)) { Text("Execute") }
             OutlinedButton(onClick = { web.reload() }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("Reload") }
             OutlinedButton(onClick = { web.stopLoading() }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("Stop") }
-            OutlinedButton(onClick = {
-                val page = current.ifBlank { address }
-                val fallbackHeaders = linkedMapOf<String, String>()
-                web.settings.userAgentString?.takeIf { it.isNotBlank() }?.let { fallbackHeaders["User-Agent"] = it }
-                CookieManager.getInstance().getCookie(page)?.takeIf { it.isNotBlank() }?.let { fallbackHeaders["Cookie"] = it }
-                toRepeater(capturedMainRequest.get()?.copy(url = page) ?: CapturedRequest(page, "GET", fallbackHeaders))
-            }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("Repeater") }
+            OutlinedButton(onClick = { toRepeater(currentRequest()) }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("Repeater") }
         }
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
             listOf("SQL" to "SQLi", "XSS" to "XSS", "LFI" to "LFI / Traversal", "SSTI" to "SSTI", "SSRF" to "SSRF", "Auth" to "Authorization", "WAF" to "WAF Lab").forEach { (label, target) ->
-                OutlinedButton(onClick = { panel = target }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text(label) }
+                OutlinedButton(onClick = { toTool(target, currentRequest()) }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text(label) }
             }
         }
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -96,7 +97,7 @@ import java.util.concurrent.atomic.AtomicReference
             when (panel) {
                 "Find in Page" -> { var query by remember { mutableStateOf("") }; OutlinedTextField(query, { query = it; web.findAllAsync(it) }, label = { Text("Find") }); Row { TextButton(onClick = { web.findNext(false) }) { Text("Previous") }; TextButton(onClick = { web.findNext(true) }) { Text("Next") } } }
                 "History" -> history.asReversed().take(30).forEach { h -> TextButton(onClick = { navigate(h); panel = "" }) { Text(h) } }
-                "Tamper Data" -> Text("Open the current URL in Repeater to edit method, headers and body before sending.")
+                "Tamper Data" -> { Text("Edit the current request in Repeater."); Button(onClick = { toRepeater(currentRequest()) }) { Text("Open Repeater") } }
                 "Headers" -> SelectionText("Browser request-header editing is intentionally separated from WebView. Use Repeater for exact request control. Current page: $current")
                 "Cookies" -> SelectionText(CookieManager.getInstance().getCookie(current) ?: "No cookies for current page")
                 "User Agent" -> SelectionText(web.settings.userAgentString ?: defaultAgent)
@@ -107,7 +108,7 @@ import java.util.concurrent.atomic.AtomicReference
                 "SSRF" -> SelectionText("Use only a callback endpoint you control, e.g. https://example.com/HB_CANARY_2026. Do not probe internal metadata/services.")
                 "Authorization" -> SelectionText("Authorization workspace: compare the same authorized request across your own test roles/sessions. Use Repeater for exact headers/cookies.")
                 "WAF Lab" -> SelectionText("WAF experiments are available in the WAF Lab tab: original, URL encoded, double encoded and normalization variants.")
-                "Custom Query" -> Text("Use Repeater for custom method, headers, body and query-string editing.")
+                "Custom Query" -> { Text("Open the current request in Repeater for custom method, headers, body and query-string editing."); Button(onClick = { toRepeater(currentRequest()) }) { Text("Open Repeater") } }
                 "Admin Finder" -> Text("Automatic admin-path scanning is not enabled. Use authorized discovery lists manually and within scope.")
                 "Web Tools" -> SelectionText("Quick tools: View Source · Extract Links · Find · History · Cookies · User Agent · Repeater · WAF Lab")
                 "About" -> Text("DH HackerBar Mobile · modern compatibility prototype inspired by the original DH HackBar UI.")

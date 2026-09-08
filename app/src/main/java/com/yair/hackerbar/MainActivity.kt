@@ -145,6 +145,27 @@ class MainActivity : ComponentActivity() {
                     body = ""
                     result = "Captured from Browser: ${method} ${url}"
                     tab = 1
+                }, { tool, req ->
+                    url = Engine.normalizeUrl(req.url)
+                    Engine.hostOf(req.url).takeIf { it.isNotBlank() }?.let { scope = it }
+                    method = req.method.uppercase().takeIf { it in listOf("GET","POST","PUT","PATCH","DELETE","HEAD") } ?: "GET"
+                    headers = req.headers.entries
+                        .filterNot { (k, _) -> k.equals("Host", true) || k.equals("Content-Length", true) }
+                        .joinToString("\n") { (k, v) -> "$k: $v" }
+                    body = when (tool) {
+                        "SQLi" -> "'"
+                        "XSS" -> "HB_CANARY_2026"
+                        "LFI / Traversal" -> "../HB_CANARY_2026"
+                        "SSTI" -> "{{7*7}}"
+                        "SSRF" -> "https://example.com/HB_CANARY_2026"
+                        "Authorization" -> ""
+                        else -> body
+                    }
+                    if (tool == "Authorization" && headers.lineSequence().none { it.startsWith("Authorization:", true) }) {
+                        headers = listOf(headers, "Authorization: Bearer TEST_TOKEN").filter { it.isNotBlank() }.joinToString("\n")
+                    }
+                    result = "Prepared $tool from Browser: ${method} ${url}"
+                    tab = if (tool == "WAF Lab") 3 else 1
                 })
                 1 -> {
                     Text("Scope Guard", style = MaterialTheme.typography.titleMedium)
