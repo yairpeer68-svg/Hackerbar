@@ -74,6 +74,7 @@ object Engine {
     }
 }
 
+data class CapturedRequest(val url: String, val method: String, val headers: Map<String, String>)
 data class Payload(val category: String, val name: String, val value: String, val note: String)
 val payloads = listOf(
     Payload("XSS", "HTML reflection canary", "HB_CANARY_2026", "Check reflection and output encoding before any active proof."),
@@ -134,7 +135,17 @@ class MainActivity : ComponentActivity() {
         ScrollableTabRow(selectedTabIndex = tab, edgePadding = 0.dp, containerColor = Color(0xFF0F1519)) { tabs.forEachIndexed { i, name -> Tab(selected = tab == i, onClick = { tab = i }, text = { Text(name) }) } }
         Column(Modifier.fillMaxSize().padding(6.dp).then(if (tab == 0) Modifier else Modifier.verticalScroll(rememberScrollState())), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             when (tab) {
-                0 -> BrowserWorkspace(browserUrl, { browserUrl = it }, { target -> url = Engine.normalizeUrl(target); Engine.hostOf(target).takeIf { it.isNotBlank() }?.let { scope = it }; tab = 1 })
+                0 -> BrowserWorkspace(browserUrl, { browserUrl = it }, { req ->
+                    url = Engine.normalizeUrl(req.url)
+                    Engine.hostOf(req.url).takeIf { it.isNotBlank() }?.let { scope = it }
+                    method = req.method.uppercase().takeIf { it in listOf("GET","POST","PUT","PATCH","DELETE","HEAD") } ?: "GET"
+                    headers = req.headers.entries
+                        .filterNot { (k, _) -> k.equals("Host", true) || k.equals("Content-Length", true) }
+                        .joinToString("\n") { (k, v) -> "$k: $v" }
+                    body = ""
+                    result = "Captured from Browser: ${method} ${url}"
+                    tab = 1
+                })
                 1 -> {
                     Text("Scope Guard", style = MaterialTheme.typography.titleMedium)
                     OutlinedTextField(scope, { scope = it }, label = { Text("Allowed hosts, one per line (google.com or https://google.com)") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
@@ -145,6 +156,12 @@ class MainActivity : ComponentActivity() {
                     OutlinedTextField(body, { body = it }, label = { Text("Request body") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
                     val validation = Engine.validationError(url, scope)
                     if (validation != null) Text(validation, color = Color(0xFFFFC857), style = MaterialTheme.typography.bodySmall)
+                    when {
+                        busy -> Text("Sending request…", color = Color(0xFF72D6FF), fontWeight = FontWeight.SemiBold)
+                        result.startsWith("HTTP ") -> Text(result.lineSequence().first(), color = Color(0xFF72E6A6), fontWeight = FontWeight.Bold)
+                        result.startsWith("Error:") -> Text(result.lineSequence().first(), color = Color(0xFFFF7A7A), fontWeight = FontWeight.Bold)
+                        result.startsWith("Captured from Browser:") -> Text(result, color = Color(0xFF72D6FF), style = MaterialTheme.typography.bodySmall)
+                    }
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = sendRequest, enabled = !busy) { Text(if (busy) "Sending…" else "Execute") }
                         OutlinedButton(onClick = { baseline = result }, enabled = result.isNotBlank()) { Text("Baseline") }

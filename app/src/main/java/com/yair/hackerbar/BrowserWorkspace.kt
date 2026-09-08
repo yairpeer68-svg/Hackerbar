@@ -15,9 +15,10 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import org.json.JSONObject
+import java.util.concurrent.atomic.AtomicReference
 
 @SuppressLint("SetJavaScriptEnabled")
-@Composable fun BrowserWorkspace(initialUrl: String, onUrl: (String)->Unit, toRepeater: (String)->Unit) {
+@Composable fun BrowserWorkspace(initialUrl: String, onUrl: (String)->Unit, toRepeater: (CapturedRequest)->Unit) {
     val context = LocalContext.current
     var address by remember { mutableStateOf(initialUrl) }
     var current by remember { mutableStateOf(initialUrl) }
@@ -30,6 +31,7 @@ import org.json.JSONObject
     var progress by remember { mutableIntStateOf(0) }
     val web = remember { WebView(context) }
     val history = remember { mutableStateListOf<String>() }
+    val capturedMainRequest = remember { AtomicReference<CapturedRequest?>(null) }
     val defaultAgent = remember { WebSettings.getDefaultUserAgent(context) }
     fun navigate(raw: String) {
         val target = if (raw.contains("://")) raw else "https://$raw"
@@ -56,7 +58,13 @@ import org.json.JSONObject
             Button(onClick = { navigate(address) }, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)) { Text("Execute") }
             OutlinedButton(onClick = { web.reload() }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("Reload") }
             OutlinedButton(onClick = { web.stopLoading() }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("Stop") }
-            OutlinedButton(onClick = { toRepeater(current) }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("Repeater") }
+            OutlinedButton(onClick = {
+                val page = current.ifBlank { address }
+                val fallbackHeaders = linkedMapOf<String, String>()
+                web.settings.userAgentString?.takeIf { it.isNotBlank() }?.let { fallbackHeaders["User-Agent"] = it }
+                CookieManager.getInstance().getCookie(page)?.takeIf { it.isNotBlank() }?.let { fallbackHeaders["Cookie"] = it }
+                toRepeater(capturedMainRequest.get()?.copy(url = page) ?: CapturedRequest(page, "GET", fallbackHeaders))
+            }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("Repeater") }
         }
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
             listOf("SQL" to "SQLi", "XSS" to "XSS", "LFI" to "LFI / Traversal", "SSTI" to "SSTI", "SSRF" to "SSRF", "Auth" to "Authorization", "WAF" to "WAF Lab").forEach { (label, target) ->
@@ -117,6 +125,17 @@ import org.json.JSONObject
             settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             webChromeClient = object : WebChromeClient() { override fun onProgressChanged(view: WebView?, newProgress: Int) { progress = newProgress } }
             webViewClient = object : WebViewClient() {
+                override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest): WebResourceResponse? {
+                    if (request.isForMainFrame) {
+                        val h = linkedMapOf<String, String>()
+                        h.putAll(request.requestHeaders)
+                        val page = request.url.toString()
+                        CookieManager.getInstance().getCookie(page)?.takeIf { it.isNotBlank() && h.keys.none { k -> k.equals("Cookie", true) } }?.let { h["Cookie"] = it }
+                        web.settings.userAgentString?.takeIf { it.isNotBlank() && h.keys.none { k -> k.equals("User-Agent", true) } }?.let { h["User-Agent"] = it }
+                        capturedMainRequest.set(CapturedRequest(page, request.method ?: "GET", h))
+                    }
+                    return super.shouldInterceptRequest(view, request)
+                }
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest): Boolean {
                     val u = request.url
                     if (u.scheme !in listOf("http", "https")) return true
