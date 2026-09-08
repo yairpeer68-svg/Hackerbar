@@ -48,3 +48,4 @@ private fun saveToDownloads(context: Context, report: String) {
     values.put(MediaStore.Downloads.IS_PENDING, 0)
     resolver.update(uri, values, null, null)
 }
+}
