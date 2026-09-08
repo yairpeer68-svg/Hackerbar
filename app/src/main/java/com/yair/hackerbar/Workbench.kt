@@ -27,7 +27,7 @@ data class PassiveFinding(
     val recommendation: String
 )
 class WorkbenchStore(context: Context) {
-    internal val prefs = context.getSharedPreferences("dh_hackbar_workbench", Context.MODE_PRIVATE)
+    internal val prefs = context.getSharedPreferences("dh_hackbar_workbench_v2", Context.MODE_PRIVATE)
 
     fun loadExchanges(): List<HttpExchange> = runCatching {
         val arr = JSONArray(prefs.getString("exchanges", "[]") ?: "[]")
@@ -35,7 +35,8 @@ class WorkbenchStore(context: Context) {
     }.getOrDefault(emptyList())
 
     fun saveExchange(exchange: HttpExchange) {
-        val all = (listOf(exchange) + loadExchanges()).distinctBy { it.id }.take(200)
+        val safe = exchange.copy(requestHeaders = exchange.requestHeaders.take(16000), requestBody = exchange.requestBody.take(64000), responseHeaders = exchange.responseHeaders.take(32000), responseBody = exchange.responseBody.take(64000))
+        val all = (listOf(safe) + loadExchanges()).distinctBy { it.id }.take(50)
         val arr = JSONArray()
         all.forEach { arr.put(it.toJson()) }
         prefs.edit().putString("exchanges", arr.toString()).apply()

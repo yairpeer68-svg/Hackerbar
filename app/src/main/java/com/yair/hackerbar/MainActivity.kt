@@ -119,12 +119,22 @@ class MainActivity : ComponentActivity() {
     var busy by remember { mutableStateOf(false) }
     var lastSend by remember { mutableLongStateOf(0L) }
     val context = LocalContext.current
-    val store = remember { WorkbenchStore(context) }
-    var findings by remember { mutableStateOf(store.loadFindings()) }
-    var exchanges by remember { mutableStateOf(store.loadExchanges()) }
-    var projects by remember { mutableStateOf(store.loadProjects()) }
-    var currentProject by remember { mutableStateOf(projects.firstOrNull() ?: "Default") }
-    var lastExchange by remember { mutableStateOf<HttpExchange?>(exchanges.firstOrNull()) }
+    val store = remember(context.applicationContext) { WorkbenchStore(context.applicationContext) }
+    var findings by remember { mutableStateOf(emptyList<String>()) }
+    var exchanges by remember { mutableStateOf(emptyList<HttpExchange>()) }
+    var projects by remember { mutableStateOf(listOf("Default")) }
+    var currentProject by remember { mutableStateOf("Default") }
+    var lastExchange by remember { mutableStateOf<HttpExchange?>(null) }
+    var storageWarning by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        runCatching {
+            findings = store.loadFindings()
+            exchanges = store.loadExchanges()
+            projects = store.loadProjects().ifEmpty { listOf("Default") }
+            currentProject = projects.first()
+            lastExchange = exchanges.firstOrNull()
+        }.onFailure { storageWarning = "Local workbench data was reset safely: ${it.javaClass.simpleName}" }
+    }
     val coroutine = rememberCoroutineScope()
     val sendRequest = {
         if (!busy) {
@@ -145,6 +155,7 @@ class MainActivity : ComponentActivity() {
         }
     }
     Column(Modifier.fillMaxSize().background(Color(0xFF0B0F12))) {
+        storageWarning?.let { Text(it, color = Color(0xFFFFC857), modifier = Modifier.padding(6.dp)) }
         Row(Modifier.fillMaxWidth().background(Color(0xFF11181D)).padding(horizontal = 8.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
             Image(painterResource(R.drawable.hackerbar_logo), "HackerBar logo", Modifier.size(30.dp).clip(RoundedCornerShape(15.dp)))
             Spacer(Modifier.width(7.dp))
