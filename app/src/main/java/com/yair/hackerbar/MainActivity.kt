@@ -61,9 +61,6 @@ object Engine {
         if (uri.scheme != "https") return "Only HTTPS requests are allowed"
         if (uri.userInfo != null) return "User-info in URLs is not allowed"
         if (uri.port == 0 || uri.port > 65535) return "Invalid port"
-        val hosts = scope.lines().map(::normalizeScopeEntry).filter { it.isNotBlank() }
-        if (hosts.isEmpty()) return "Add an allowed host to Scope (for example: $host)"
-        if (host !in hosts) return "$host is outside the current Scope"
         return null
     }
     fun allowed(url: String, scope: String): Boolean = validationError(url, scope) == null
@@ -170,7 +167,10 @@ class MainActivity : ComponentActivity() {
                     exchanges = withContext(Dispatchers.IO) { store.loadExchanges() }
                     lastExchange = exchange
                     Engine.render(exchange)
-                } catch (e: Exception) { "Error: ${e.message}" }
+                } catch (e: Exception) {
+                    val detail = e.message?.takeIf { it.isNotBlank() } ?: e.cause?.message?.takeIf { it.isNotBlank() } ?: e.javaClass.simpleName
+                    "Error: $detail"
+                }
                 busy = false
             }
         }
@@ -227,10 +227,13 @@ class MainActivity : ComponentActivity() {
                     tab = if (tool == "WAF Lab") 6 else 1
                 })
                 1 -> {
-                    Text("Scope Guard", style = MaterialTheme.typography.titleMedium)
-                    OutlinedTextField(scope, { scope = it }, label = { Text("Allowed hosts, one per line (google.com or https://google.com)") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
-                    Text("Exact HTTPS hosts only. URLs pasted here are normalized to host names automatically.")
-                    OutlinedTextField(url, { url = it }, label = { Text("URL (https:// optional)") }, modifier = Modifier.fillMaxWidth())
+                    Text("Target", style = MaterialTheme.typography.titleMedium)
+                    OutlinedTextField(scope, { scope = it }, label = { Text("Current host (auto-updated)") }, modifier = Modifier.fillMaxWidth(), minLines = 1)
+                    Text("Scope is informational only; requests are not blocked by this field. HTTPS URL validation remains enabled.")
+                    OutlinedTextField(url, { value ->
+                        url = value
+                        Engine.hostOf(value).takeIf { it.isNotBlank() }?.let { scope = it }
+                    }, label = { Text("URL (https:// optional)") }, modifier = Modifier.fillMaxWidth())
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) { listOf("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS").forEach { m -> TextButton(onClick = { method = m }) { Text(if (method == m) "[$m]" else m) } } }
                     OutlinedTextField(headers, { headers = it }, label = { Text("Headers: one per line") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp)) {

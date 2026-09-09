@@ -5,7 +5,7 @@ plugins {
 android {
     namespace = "com.yair.hackerbar"
     compileSdk = 36
-    defaultConfig { applicationId = "com.yair.hackerbar"; minSdk = 26; targetSdk = 36; versionCode = 6; versionName = "0.1.5" }
+    defaultConfig { applicationId = "com.yair.hackerbar"; minSdk = 26; targetSdk = 36; versionCode = 7; versionName = "0.1.6" }
     buildFeatures { compose = true }
 }
 dependencies {
