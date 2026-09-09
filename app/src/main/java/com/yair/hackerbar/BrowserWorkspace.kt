@@ -133,6 +133,7 @@ private fun applyPrivacyIdentity(web: WebView) {
                 else { apiCaptureEnabled = true; web.evaluateJavascript(API_CAPTURE_INSTALL_SCRIPT, null) }
             }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text(if (apiCaptureEnabled) "API Capture: ON" else "API Capture: OFF") }
             OutlinedButton(onClick = { captureLastApiToRepeater() }, enabled = apiCaptureEnabled, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("Last API→Repeater") }
+            OutlinedButton(onClick = { web.evaluateJavascript(API_CAPTURE_LIST_SCRIPT) { raw -> panel = "API Log"; source = runCatching { JSONObject("{\"v\":$raw}").getString("v") }.getOrDefault(raw) } }, enabled = apiCaptureEnabled, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)) { Text("API Log") }
         }
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
             listOf("SQL" to "SQLi", "XSS" to "XSS", "LFI" to "LFI / Traversal", "SSTI" to "SSTI", "SSRF" to "SSRF", "Auth" to "Authorization", "WAF" to "WAF Lab").forEach { (label, target) ->
@@ -175,6 +176,7 @@ private fun applyPrivacyIdentity(web: WebView) {
                 "Headers" -> SelectionText("Browser request-header editing is intentionally separated from WebView. Use Repeater for exact request control. Current page: $current")
                 "Form Capture" -> SelectionText(source)
                 "API Capture" -> SelectionText(source)
+                "API Log" -> SelectionText(prettyJsonOrOriginal(source))
                 "Cookies" -> SelectionText(CookieManager.getInstance().getCookie(current) ?: "No cookies for current page")
                 "User Agent" -> SelectionText(web.settings.userAgentString ?: defaultAgent)
                 "SQLi" -> SelectionText("Manual SQL checks: quote handling ( ' ), boolean comparison (1 AND 1=1), baseline/error comparison. Use Repeater on an authorized parameter.")
@@ -234,6 +236,13 @@ private fun applyPrivacyIdentity(web: WebView) {
                     if (apiCaptureEnabled) view?.evaluateJavascript(API_CAPTURE_INSTALL_SCRIPT, null)
                 }
                 override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) { if (request?.isForMainFrame == true) { panel = "Page error"; source = error?.description?.toString().orEmpty() } }
+                override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                    loading = false
+                    panel = "Browser recovered"
+                    source = "WebView renderer exited${if (detail?.didCrash() == true) " after a crash" else ""}. Reload the page to continue."
+                    capturedMainRequest.set(null)
+                    return true
+                }
             }
             loadUrl(initialUrl); 
         } }, modifier = Modifier.fillMaxWidth().weight(1f))

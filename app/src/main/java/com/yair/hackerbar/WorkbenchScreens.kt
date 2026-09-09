@@ -67,3 +67,18 @@ fun ProjectsScreen(projects: List<String>, current: String, onSelect: (String) -
         Text("Projects separate request history context. Stored locally on this device.", style = MaterialTheme.typography.bodySmall)
     }
 }
+
+@Composable
+fun IntelligenceScreen(exchanges: List<HttpExchange>) {
+    var mode by remember { mutableStateOf("Endpoints") }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Project Intelligence", style = MaterialTheme.typography.titleLarge)
+        Text("Passive inventory generated only from requests already captured in this project.", style = MaterialTheme.typography.bodySmall)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            AssistChip(onClick = { mode = "Endpoints" }, label = { Text(if (mode == "Endpoints") "[Endpoints]" else "Endpoints") })
+            AssistChip(onClick = { mode = "Parameters" }, label = { Text(if (mode == "Parameters") "[Parameters]" else "Parameters") })
+        }
+        val text = if (mode == "Endpoints") endpointMap(exchanges) else parameterInventory(exchanges)
+        SelectionText(text)
+    }
+}

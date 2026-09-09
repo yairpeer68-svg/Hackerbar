@@ -17,6 +17,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
@@ -125,7 +127,7 @@ class MainActivity : ComponentActivity() {
 @Composable fun App() {
     var tab by remember { mutableIntStateOf(0) }
     var browserUrl by remember { mutableStateOf("https://example.com/") }
-    val tabs = listOf("Browser", "Repeater", "History", "Analyze", "Projects", "Payloads", "WAF Lab", "Decoder", "Diff", "Findings")
+    val tabs = listOf("Browser", "Repeater", "History", "Analyze", "Projects", "Payloads", "WAF Lab", "Decoder", "Diff", "Intel", "Findings")
     var scope by remember { mutableStateOf("example.com") }
     var url by remember { mutableStateOf("https://example.com/") }
     var method by remember { mutableStateOf("GET") }
@@ -136,6 +138,7 @@ class MainActivity : ComponentActivity() {
     var busy by remember { mutableStateOf(false) }
     var lastSend by remember { mutableLongStateOf(0L) }
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     val store = remember(context.applicationContext) { WorkbenchStore(context.applicationContext) }
     var findings by remember { mutableStateOf(emptyList<String>()) }
     var exchanges by remember { mutableStateOf(emptyList<HttpExchange>()) }
@@ -257,9 +260,15 @@ class MainActivity : ComponentActivity() {
                         OutlinedButton(onClick = { baseline = result }, enabled = result.isNotBlank()) { Text("Baseline") }
                         OutlinedButton(onClick = { if (result.isNotBlank()) { store.saveFinding("${method} ${url}\n${redactSecrets(result.take(10000))}"); findings = store.loadFindings() } }, enabled = result.isNotBlank()) { Text("Save finding") }
                         OutlinedButton(onClick = { tab = 3 }, enabled = lastExchange != null) { Text("Analyze") }
+                        OutlinedButton(onClick = { clipboard.setText(AnnotatedString(requestAsCurl(method, url, headers, body))) }) { Text("Copy cURL") }
+                        OutlinedButton(onClick = { clipboard.setText(AnnotatedString(requestAsRawHttp(method, url, headers, body))) }) { Text("Copy Raw") }
                         TextButton(onClick = { headers = ""; body = ""; result = "" }) { Text("Clear") }
                     }
                     Text("Response", style = MaterialTheme.typography.titleMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        AssistChip(onClick = { lastExchange?.let { result = Engine.render(it.copy(responseBody = prettyJsonOrOriginal(it.responseBody))) } }, label = { Text("Pretty JSON") })
+                        AssistChip(onClick = { clipboard.setText(AnnotatedString(result)) }, label = { Text("Copy Response") })
+                    }
                     SelectionText(result)
                 }
                 2 -> HistoryScreen(exchanges.filter { it.project == currentProject }, { item ->
@@ -298,6 +307,7 @@ class MainActivity : ComponentActivity() {
                     Text(if (baseline == result) "IDENTICAL" else "CHANGED", color = if (baseline == result) Color(0xFF72E6A6) else Color(0xFFFFC857), fontWeight = FontWeight.Bold)
                     SelectionText("BASELINE\n$baseline\n\nCURRENT\n$result")
                 }
+                9 -> IntelligenceScreen(exchanges.filter { it.project == currentProject })
                 else -> {
                     Text("Evidence Vault", style = MaterialTheme.typography.titleLarge)
                     Text("Local findings captured from Repeater. Nothing is uploaded automatically.")
@@ -315,14 +325,16 @@ class MainActivity : ComponentActivity() {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Encoder / Decoder", style = MaterialTheme.typography.titleLarge)
         OutlinedTextField(input, { input = it }, label = { Text("Input") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
-        val operations = listOf("Base64 encode", "Base64 decode", "URL encode", "URL decode", "Hex encode", "Hex decode")
+        val operations = listOf("Base64 encode", "Base64 decode", "URL encode", "URL decode", "Hex encode", "Hex decode", "JSON pretty", "JWT decode")
         operations.forEach { op -> OutlinedButton(onClick = { output = try { when(op) {
             "Base64 encode" -> Base64.getEncoder().encodeToString(input.toByteArray())
             "Base64 decode" -> String(Base64.getDecoder().decode(input))
             "URL encode" -> URLEncoder.encode(input, "UTF-8")
             "URL decode" -> java.net.URLDecoder.decode(input, "UTF-8")
             "Hex encode" -> input.toByteArray().joinToString("") { "%02x".format(it) }
-            else -> { require(input.length % 2 == 0 && input.matches(Regex("[0-9a-fA-F]*"))); String(input.chunked(2).map { it.toInt(16).toByte() }.toByteArray()) }
+            "Hex decode" -> { require(input.length % 2 == 0 && input.matches(Regex("[0-9a-fA-F]*"))); String(input.chunked(2).map { it.toInt(16).toByte() }.toByteArray()) }
+            "JSON pretty" -> prettyJsonOrOriginal(input)
+            else -> decodeJwtForDisplay(input)
         } } catch (e: Exception) { "Invalid input: ${e.message}" } }) { Text(op) } }
         SelectionText(output)
     }

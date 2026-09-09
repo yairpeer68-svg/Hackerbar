@@ -50,3 +50,13 @@ const val API_CAPTURE_INSTALL_SCRIPT = """
 const val API_CAPTURE_LAST_SCRIPT = """
 (() => JSON.stringify((window.__hbRequests && window.__hbRequests.length) ? window.__hbRequests[window.__hbRequests.length - 1] : {error:'No fetch/XHR request captured yet'}))()
 """
+
+const val API_CAPTURE_LIST_SCRIPT = """
+(() => {
+  const list = (window.__hbRequests || []).slice(-40).map((r, i) => ({
+    n:i+1, method:r.method||'GET', url:r.url||'', source:r.source||'',
+    bodyChars:(r.body||'').length
+  }));
+  return JSON.stringify(list);
+})()
+"""
