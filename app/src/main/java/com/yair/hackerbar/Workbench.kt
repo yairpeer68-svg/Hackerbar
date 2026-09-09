@@ -17,7 +17,17 @@ data class HttpExchange(
     val responseHeaders: String = "",
     val responseBody: String = "",
     val durationMs: Long = 0,
-    val responseBytes: Long = 0
+    val responseBytes: Long = 0,
+    val tlsVersion: String = "",
+    val cipherSuite: String = "",
+    val certificateSubject: String = "",
+    val certificateIssuer: String = "",
+    val certificateNotAfter: Long = 0,
+    val responseMime: String = "",
+    val responseCharset: String = "",
+    val contentEncoding: String = "",
+    val redirectLocation: String = "",
+    val pinned: Boolean = false
 )
 
 data class PassiveFinding(
@@ -54,6 +64,12 @@ class WorkbenchStore(context: Context) {
         prefs.edit().putString("exchanges", arr.toString()).apply()
     }
 
+    fun togglePinned(id: String) {
+        val all = loadExchanges().map { if (it.id == id) it.copy(pinned = !it.pinned) else it }
+        val arr = JSONArray(); all.forEach { arr.put(it.toJson()) }
+        prefs.edit().putString("exchanges", arr.toString()).apply()
+    }
+
     fun loadProjects(): List<String> = runCatching {
         val arr = JSONArray(prefs.getString("projects", "[\"Default\"]") ?: "[\"Default\"]")
         List(arr.length()) { i -> arr.getString(i) }
@@ -72,13 +88,19 @@ class WorkbenchStore(context: Context) {
         put("requestBody", requestBody); put("status", status)
         put("responseHeaders", responseHeaders); put("responseBody", responseBody)
         put("durationMs", durationMs); put("responseBytes", responseBytes)
+        put("tlsVersion", tlsVersion); put("cipherSuite", cipherSuite)
+        put("certificateSubject", certificateSubject); put("certificateIssuer", certificateIssuer); put("certificateNotAfter", certificateNotAfter)
+        put("responseMime", responseMime); put("responseCharset", responseCharset); put("contentEncoding", contentEncoding); put("redirectLocation", redirectLocation); put("pinned", pinned)
     }
 
     private fun JSONObject.toExchange() = HttpExchange(
         id = optString("id"), timestamp = optLong("timestamp"), project = optString("project", "Default"),
         method = optString("method"), url = optString("url"), requestHeaders = optString("requestHeaders"),
         requestBody = optString("requestBody"), status = optInt("status"), responseHeaders = optString("responseHeaders"),
-        responseBody = optString("responseBody"), durationMs = optLong("durationMs"), responseBytes = optLong("responseBytes")
+        responseBody = optString("responseBody"), durationMs = optLong("durationMs"), responseBytes = optLong("responseBytes"),
+        tlsVersion = optString("tlsVersion"), cipherSuite = optString("cipherSuite"), certificateSubject = optString("certificateSubject"),
+        certificateIssuer = optString("certificateIssuer"), certificateNotAfter = optLong("certificateNotAfter"), responseMime = optString("responseMime"),
+        responseCharset = optString("responseCharset"), contentEncoding = optString("contentEncoding"), redirectLocation = optString("redirectLocation"), pinned = optBoolean("pinned", false)
     )
 }
 object PassiveAnalyzer {

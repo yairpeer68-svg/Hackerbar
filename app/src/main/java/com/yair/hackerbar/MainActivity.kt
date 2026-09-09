@@ -95,8 +95,17 @@ object Engine {
                 val safeBytes = if (truncated) bytes.copyOf(MAX_RESPONSE_BYTES.toInt()) else bytes
                 val mime = type?.type.orEmpty() + "/" + type?.subtype.orEmpty()
                 val textual = type == null || type.type == "text" || type.subtype.contains("json", true) || type.subtype.contains("xml", true) || type.subtype.contains("javascript", true) || type.subtype.contains("html", true)
-                val text = if (textual) safeBytes.toString(type?.charset(Charsets.UTF_8) ?: Charsets.UTF_8) + if (truncated) "\n[response truncated at 256 KiB]" else "" else "[binary response omitted: $mime, ${responseBody?.contentLength()?.takeIf { it >= 0 } ?: safeBytes.size.toLong()} bytes]"
-                return HttpExchange(project = project, method = method, url = normalizedUrl, requestHeaders = headers, requestBody = body, status = response.code, responseHeaders = response.headers.toString(), responseBody = text, durationMs = (System.nanoTime() - started) / 1_000_000, responseBytes = responseBody?.contentLength()?.takeIf { it >= 0 } ?: safeBytes.size.toLong())
+                val charset = type?.charset(Charsets.UTF_8) ?: Charsets.UTF_8
+                val text = if (textual) safeBytes.toString(charset) + if (truncated) "\n[response truncated at 256 KiB]" else "" else "[binary response omitted: $mime, ${responseBody?.contentLength()?.takeIf { it >= 0 } ?: safeBytes.size.toLong()} bytes]"
+                val hs = response.handshake
+                val cert = hs?.peerCertificates?.firstOrNull() as? java.security.cert.X509Certificate
+                return HttpExchange(project = project, method = method, url = normalizedUrl, requestHeaders = headers, requestBody = body,
+                    status = response.code, responseHeaders = response.headers.toString(), responseBody = text,
+                    durationMs = (System.nanoTime() - started) / 1_000_000, responseBytes = responseBody?.contentLength()?.takeIf { it >= 0 } ?: safeBytes.size.toLong(),
+                    tlsVersion = hs?.tlsVersion?.javaName.orEmpty(), cipherSuite = hs?.cipherSuite?.javaName.orEmpty(),
+                    certificateSubject = cert?.subjectX500Principal?.name.orEmpty(), certificateIssuer = cert?.issuerX500Principal?.name.orEmpty(), certificateNotAfter = cert?.notAfter?.time ?: 0L,
+                    responseMime = if (type != null) mime else "", responseCharset = if (textual) charset.name() else "", contentEncoding = response.header("Content-Encoding").orEmpty(),
+                    redirectLocation = response.header("Location").orEmpty())
             }
         } finally { activeCall.compareAndSet(call, null) }
     }
@@ -273,7 +282,8 @@ class MainActivity : ComponentActivity() {
                 }
                 2 -> HistoryScreen(exchanges.filter { it.project == currentProject }, { item ->
                     lastExchange = item; url = item.url; method = item.method; headers = item.requestHeaders; body = item.requestBody; result = Engine.render(item); tab = 1
-                }, { coroutine.launch { withContext(Dispatchers.IO) { store.clearExchanges(currentProject) }; exchanges = withContext(Dispatchers.IO) { store.loadExchanges() }; lastExchange = null } })
+                }, { item -> coroutine.launch { withContext(Dispatchers.IO) { store.togglePinned(item.id) }; exchanges = withContext(Dispatchers.IO) { store.loadExchanges() } } },
+                { coroutine.launch { withContext(Dispatchers.IO) { store.clearExchanges(currentProject) }; exchanges = withContext(Dispatchers.IO) { store.loadExchanges() }; lastExchange = null } })
                 3 -> AnalysisScreen(lastExchange)
                 4 -> ProjectsScreen(projects, currentProject, { currentProject = it }, { name -> store.addProject(name); projects = store.loadProjects(); currentProject = name.trim().take(40) })
                 5 -> {

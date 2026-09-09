@@ -10,7 +10,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun HistoryScreen(exchanges: List<HttpExchange>, onOpen: (HttpExchange) -> Unit, onClear: () -> Unit) {
+fun HistoryScreen(exchanges: List<HttpExchange>, onOpen: (HttpExchange) -> Unit, onPin: (HttpExchange) -> Unit, onClear: () -> Unit) {
     var query by remember { mutableStateOf("") }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -18,9 +18,13 @@ fun HistoryScreen(exchanges: List<HttpExchange>, onOpen: (HttpExchange) -> Unit,
             TextButton(onClick = onClear, enabled = exchanges.isNotEmpty()) { Text("Clear") }
         }
         OutlinedTextField(query, { query = it }, label = { Text("Search URL, method, status") }, modifier = Modifier.fillMaxWidth())
-        exchanges.filter { query.isBlank() || "${it.method} ${it.url} ${it.status}".contains(query, true) }.take(100).forEach { item ->
+        exchanges.filter { query.isBlank() || "${it.method} ${it.url} ${it.status}".contains(query, true) }
+            .sortedWith(compareByDescending<HttpExchange> { it.pinned }.thenByDescending { it.timestamp }).take(100).forEach { item ->
             Card(onClick = { onOpen(item) }) { Column(Modifier.fillMaxWidth().padding(10.dp)) {
-                Text("${item.method}  ${item.status}", fontWeight = FontWeight.Bold)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("${if (item.pinned) "★ " else ""}${item.method}  ${item.status}", fontWeight = FontWeight.Bold)
+                    TextButton(onClick = { onPin(item) }) { Text(if (item.pinned) "Unpin" else "Pin") }
+                }
                 Text(item.url, style = MaterialTheme.typography.bodySmall)
                 Text("${item.durationMs} ms · ${item.responseBytes} bytes · ${item.project}", style = MaterialTheme.typography.labelSmall)
             } }
@@ -38,6 +42,13 @@ fun AnalysisScreen(exchange: HttpExchange?) {
         Text("Passive Security Analysis", style = MaterialTheme.typography.titleLarge)
         Text("${exchange.method} ${exchange.url}", style = MaterialTheme.typography.bodySmall)
         Text("HTTP ${exchange.status} · ${exchange.durationMs} ms · ${exchange.responseBytes} bytes")
+        if (exchange.tlsVersion.isNotBlank()) Text("TLS ${exchange.tlsVersion} · ${exchange.cipherSuite}")
+        if (exchange.responseMime.isNotBlank()) Text("${exchange.responseMime}${exchange.responseCharset.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""}${exchange.contentEncoding.takeIf { it.isNotBlank() }?.let { " · $it" } ?: ""}")
+        if (exchange.redirectLocation.isNotBlank()) Text("Redirect → ${exchange.redirectLocation}")
+        if (exchange.certificateSubject.isNotBlank()) {
+            Text("Certificate", fontWeight = FontWeight.Bold)
+            SelectionText("Subject: ${exchange.certificateSubject}\nIssuer: ${exchange.certificateIssuer}\nExpires: ${if (exchange.certificateNotAfter > 0) java.util.Date(exchange.certificateNotAfter) else "unknown"}")
+        }
         if (findings.isEmpty()) Text("No passive header or cookie observations detected.")
         findings.forEach { f -> Card { Column(Modifier.padding(10.dp)) {
             Text("${f.severity} · ${f.title}", fontWeight = FontWeight.Bold)
